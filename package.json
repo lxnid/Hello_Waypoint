@@ -1,0 +1,35 @@
+{
+  "name": "hello-waypoint",
+  "private": true,
+  "type": "module",
+  "version": "0.1.0",
+  "packageManager": "pnpm@10.32.1",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev:services": "docker compose up -d --wait database",
+    "dev:setup": "pnpm dev:services && pnpm db:migrate && pnpm db:seed",
+    "dev": "pnpm --parallel --filter @waypoint/server --filter @waypoint/client dev",
+    "build": "pnpm --filter @waypoint/contracts build && pnpm --filter @waypoint/server build && pnpm --filter @waypoint/client build",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "eslint . --max-warnings 0",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "pnpm --filter @waypoint/server test",
+    "test:integration": "pnpm --filter @waypoint/server test:integration",
+    "db:generate": "pnpm --filter @waypoint/server db:generate",
+    "db:migrate": "pnpm --filter @waypoint/server db:migrate",
+    "db:seed": "pnpm --filter @waypoint/server db:seed",
+    "verify": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm build"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.0",
+    "eslint": "^9.39.0",
+    "eslint-config-prettier": "^10.1.8",
+    "globals": "^16.5.0",
+    "prettier": "^3.6.2",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.46.0"
+  }
+}
