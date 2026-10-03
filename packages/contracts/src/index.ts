@@ -11,7 +11,8 @@ export const UserSchema = Type.Object({
   email: Type.String({ format: 'email' }),
   displayName: Type.String(),
   role: RoleSchema,
-  depot: DepotSchema,
+  depot: Type.Union([DepotSchema, Type.Null()]),
+  authorizedDepots: Type.Array(DepotSchema),
   outletId: Type.Union([Type.String(), Type.Null()]),
 });
 export type User = Static<typeof UserSchema>;
@@ -44,3 +45,5 @@ export const OverviewSchema = Type.Object({
   stage: Type.Literal('FOUNDATION'),
 });
 export type Overview = Static<typeof OverviewSchema>;
+
+export type { CreateOrder } from './operations.js';

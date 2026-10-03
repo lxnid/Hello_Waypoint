@@ -30,7 +30,7 @@ async function login(email: string, password = config.demoPassword) {
 
 describe('role sessions and documented API', () => {
   it.each([
-    ['dispatcher@waypoint.lk', 'DISPATCHER', 'dispatcher', 75, 38],
+    ['dispatcher@waypoint.lk', 'DISPATCHER', 'dispatcher', 120, 60],
     ['loader@waypoint.lk', 'LOADER', 'loader', 75, 38],
     ['driver@waypoint.lk', 'DRIVER', 'driver', 75, 38],
     ['manager.out001@waypoint.lk', 'STORE_MANAGER', 'store', 1, 0],

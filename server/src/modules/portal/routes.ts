@@ -1,7 +1,7 @@
 import type { FastifyPluginAsync } from 'fastify';
-import { eq, sql } from 'drizzle-orm';
+import { eq, inArray, sql } from 'drizzle-orm';
 import { ErrorSchema, OverviewSchema, ROLE_API, type Role } from '@waypoint/contracts';
-import { outlets, vehicles } from '../../db/schema.js';
+import { districts, outlets, vehicles } from '../../db/schema.js';
 
 const portalRoles: Role[] = ['DISPATCHER', 'LOADER', 'DRIVER', 'STORE_MANAGER'];
 
@@ -24,15 +24,16 @@ export const portalRoutes: FastifyPluginAsync = async (app) => {
         const outletFilter =
           user.role === 'STORE_MANAGER'
             ? eq(outlets.id, user.outletId!)
-            : eq(outlets.depot, user.depot);
+            : inArray(districts.depotId, user.authorizedDepots);
         const [outletResult] = await app.db
           .select({ count: sql<number>`count(*)::int` })
           .from(outlets)
+          .innerJoin(districts, eq(outlets.districtId, districts.id))
           .where(outletFilter);
         const [vehicleResult] = await app.db
           .select({ count: sql<number>`count(*)::int` })
           .from(vehicles)
-          .where(eq(vehicles.depot, user.depot));
+          .where(inArray(vehicles.depotId, user.authorizedDepots));
         return {
           user,
           outletCount: outletResult?.count ?? 0,

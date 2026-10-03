@@ -143,7 +143,8 @@ export function PortalView({
 }: PortalViewProps) {
   const presentation = ROLE_PRESENTATION[user.role];
   const RoleIcon = presentation.icon;
-  const locationLabel = user.outletId ?? `${user.depot} depot`;
+  const locationLabel =
+    user.outletId ?? (user.role === 'DISPATCHER' ? 'Both depots' : `${user.depot} depot`);
   const scopeValue = overviewError
     ? 'Unavailable'
     : user.role === 'STORE_MANAGER'

@@ -18,7 +18,7 @@ These accounts use synthetic competition data. All four use the demo password `P
 
 | Role          | Email                        | Scope            |
 | ------------- | ---------------------------- | ---------------- |
-| Dispatcher    | `dispatcher@waypoint.lk`     | Peliyagoda depot |
+| Dispatcher    | `dispatcher@waypoint.lk`     | Both depots      |
 | Loader        | `loader@waypoint.lk`         | Peliyagoda depot |
 | Driver        | `driver@waypoint.lk`         | Peliyagoda depot |
 | Store manager | `manager.out001@waypoint.lk` | OUT001           |
@@ -46,11 +46,11 @@ docker compose stop app
 pnpm dev
 ```
 
-The server loads the repository-root `.env` automatically while preserving any environment variables supplied by Docker or CI. Check changes with `pnpm verify`; `pnpm format` applies the shared Prettier style.
+The server loads the repository-root `.env` automatically while preserving any environment variables supplied by Docker or CI. Check changes with `pnpm verify`; `pnpm format` applies the shared Prettier style. Run `pnpm verify:database` for Drizzle migration and integration checks using the Docker PostgreSQL service and an isolated test database.
 
 ## Architecture and API
 
-The client, server, and shared contracts are pnpm workspaces. The same TypeBox schemas describe validation, responses, TypeScript types, and OpenAPI. PostgreSQL stores reference outlets, vehicles, users, and revocable sessions. [Architecture](docs/architecture.md) and [data model](docs/data-model.md) document the boundaries.
+The client, server, and shared contracts are pnpm workspaces. The same TypeBox schemas describe validation, responses, TypeScript types, and OpenAPI. PostgreSQL stores normalized network/catalog references, orders, dated plans, trip load manifests, fulfillment, receipts, claims, forecasts, users, and revocable sessions. [Architecture](docs/architecture.md) and [data model](docs/data-model.md) document the boundaries.
 
 The API is under `/api/v1`. Use `POST /api/v1/auth/login`, `GET /api/v1/auth/me`, `POST /api/v1/auth/logout`, and the role-specific `/api/v1/portal/{role}/overview` endpoints. Swagger UI is at `/docs`; the generated document is at `/docs/json`.
 
@@ -70,3 +70,7 @@ The submitted Designathon PDF and live prototype are the visual and workflow bas
 ## Competition data
 
 `data/reference` contains the two source CSVs needed for foundation seeding. They are synthetic competition data and should be handled according to the challenge booklet's publication rules. Do not publish this repository or the data without organizer authorization.
+
+## Operational data foundation
+
+The schema includes the full workflow and transactional backend helpers. A synthetic scenario dated 2026-03-30 seeds a released trip with a waiting load manifest and a deferred chilled order. Operational screens and HTTP workflow endpoints are still to be connected; the current portal remains the foundation view. See [the data model](docs/data-model.md) for lifecycles, constraints, indexes, CSV import/export interfaces, and Docker verification.

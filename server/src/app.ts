@@ -18,6 +18,7 @@ import type { Database } from './db/client.js';
 import type { SessionIdentity } from './modules/auth/service.js';
 import { getSession } from './modules/auth/service.js';
 import { authRoutes } from './modules/auth/routes.js';
+import { planningRoutes } from './modules/operations/routes.js';
 import { portalRoutes } from './modules/portal/routes.js';
 
 declare module 'fastify' {
@@ -87,7 +88,7 @@ export async function buildApp(config: Config, db: Database): Promise<FastifyIns
       components: {
         securitySchemes: { cookieAuth: { type: 'apiKey', in: 'cookie', name: 'waypoint_session' } },
       },
-      tags: [{ name: 'System' }, { name: 'Authentication' }],
+      tags: [{ name: 'System' }, { name: 'Authentication' }, { name: 'Planning' }],
     },
   });
   await app.register(swaggerUi, { routePrefix: '/docs', uiConfig: { docExpansion: 'list' } });
@@ -139,7 +140,17 @@ export async function buildApp(config: Config, db: Database): Promise<FastifyIns
     if (status >= 500) request.log.error(error);
     reply.code(status).send({
       code:
-        status === 400 ? 'VALIDATION_ERROR' : status === 429 ? 'RATE_LIMITED' : 'INTERNAL_ERROR',
+        status === 400
+          ? 'VALIDATION_ERROR'
+          : status === 403
+            ? 'FORBIDDEN'
+            : status === 404
+              ? 'NOT_FOUND'
+              : status === 409
+                ? 'WORKFLOW_CONFLICT'
+                : status === 429
+                  ? 'RATE_LIMITED'
+                  : 'INTERNAL_ERROR',
       message: status >= 500 ? 'An unexpected error occurred' : failure.message,
       requestId: request.id,
     });
@@ -169,6 +180,7 @@ export async function buildApp(config: Config, db: Database): Promise<FastifyIns
   );
   await app.register(authRoutes, { prefix: '/api/v1/auth' });
   await app.register(portalRoutes, { prefix: '/api/v1/portal' });
+  await app.register(planningRoutes, { prefix: '/api/v1/planning' });
 
   if (config.serveClient) {
     const root = join(fileURLToPath(new URL('.', import.meta.url)), '../../client/dist');

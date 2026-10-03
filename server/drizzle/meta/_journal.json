@@ -8,6 +8,48 @@
       "when": 1790786916638,
       "tag": "0000_wide_synch",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1791001402849,
+      "tag": "0001_windy_mandroid",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1791001524940,
+      "tag": "0002_workflow_guards",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1791001905008,
+      "tag": "0003_execution_guards",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1791002001327,
+      "tag": "0004_aggregate_receipts",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1791002431380,
+      "tag": "0005_actual_quantity_integrity",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1791004545763,
+      "tag": "0006_live_priority_tracking",
+      "breakpoints": true
     }
   ]
 }
