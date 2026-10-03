@@ -83,7 +83,7 @@ function Portal({ identity }: { identity: Identity }) {
   });
 
   const roleRoot = ROLE_HOME[user.role].split('/').slice(0, 2).join('/');
-  if (!location.pathname.startsWith(roleRoot)) {
+  if (location.pathname !== roleRoot && !location.pathname.startsWith(`${roleRoot}/`)) {
     return <Navigate to={ROLE_HOME[user.role]} replace />;
   }
 
@@ -95,7 +95,7 @@ function Portal({ identity }: { identity: Identity }) {
       // Update the observed session before navigating so the login route cannot
       // redirect back to the role workspace with stale cached identity data.
       queryClient.setQueryData(['identity'], null);
-      queryClient.removeQueries({ queryKey: ['overview'] });
+      queryClient.removeQueries({ predicate: (query) => query.queryKey[0] !== 'identity' });
       navigate('/login', { replace: true });
     }
 

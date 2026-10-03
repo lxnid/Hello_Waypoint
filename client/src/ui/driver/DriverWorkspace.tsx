@@ -1,0 +1,626 @@
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  ArrowLeft,
+  ArrowRight,
+  CheckCircle2,
+  MapPin,
+  Package,
+  RefreshCw,
+  Truck,
+  Wifi,
+  WifiOff,
+} from 'lucide-react';
+import type { User } from '@waypoint/contracts';
+import { request } from '../../api';
+import {
+  driverRead,
+  operations,
+  saveOperation,
+  syncDriver,
+  type DriverOperation,
+} from '../../offline/driver-store';
+
+const panel = 'rounded-card border border-border bg-white p-5';
+const field = 'mt-2 min-h-12 w-full rounded-control border border-border bg-white px-4 text-sm';
+const button =
+  'flex min-h-12 w-full items-center justify-center gap-2 rounded-control bg-primary px-5 text-sm font-medium text-white disabled:opacity-40';
+type Line = { id: string; sku: string; name: string; quantity: number };
+type Stop = {
+  id: string;
+  order_id: string;
+  sequence: number;
+  public_reference: string;
+  outlet_name: string | null;
+  temperature_requirement: string;
+  planned_arrival_at: string;
+  window_close_at: string;
+  lines: Line[];
+  aggregate: { units: number; weight_kg: string; volume_m3: string } | null;
+  attempt: { id: string; outcome: string | null; completed_at: string | null } | null;
+};
+type Trip = {
+  id: string;
+  vehicle_id: string;
+  trip_number: number;
+  operating_date: string;
+  status: string;
+  plan_id: string;
+  version: number;
+};
+type Detail = {
+  trip: Trip;
+  stops: Stop[];
+  inspection: object | null;
+  manifest: { status: string } | null;
+};
+const formatDate = (value: string) =>
+  new Date(value).toLocaleString('en-GB', {
+    timeZone: 'Asia/Colombo',
+    day: 'numeric',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+export function DriverWorkspace({ user }: { user: User }) {
+  const cache = useQueryClient();
+  const [online, setOnline] = useState(navigator.onLine);
+  const [queue, setQueue] = useState<DriverOperation[]>([]);
+  const [tripId, setTripId] = useState('');
+  const [stopId, setStopId] = useState('');
+  const [notice, setNotice] = useState('');
+  const [busy, setBusy] = useState(false);
+  const refreshQueue = useCallback(async () => setQueue(await operations(user.id)), [user.id]);
+  const sync = useCallback(async () => {
+    setBusy(true);
+    try {
+      await syncDriver(user.id);
+      setNotice('Saved actions synchronized.');
+      await cache.invalidateQueries({ queryKey: ['driver', user.id] });
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Sync failed');
+    } finally {
+      await refreshQueue();
+      setBusy(false);
+    }
+  }, [user.id, cache, refreshQueue]);
+  useEffect(() => {
+    void refreshQueue();
+    const on = () => {
+      setOnline(true);
+      void sync();
+    };
+    const off = () => setOnline(false);
+    window.addEventListener('online', on);
+    window.addEventListener('offline', off);
+    return () => {
+      window.removeEventListener('online', on);
+      window.removeEventListener('offline', off);
+    };
+  }, [sync, refreshQueue]);
+  const trips = useQuery({
+    queryKey: ['driver', user.id, 'trips'],
+    queryFn: () => driverRead<{ items: Trip[] }>(user.id, '/trips?limit=100'),
+    networkMode: 'always',
+    refetchInterval: online ? 30000 : false,
+  });
+  const selectedTrip =
+    tripId ||
+    trips.data?.items.find((trip) => trip.status !== 'COMPLETED')?.id ||
+    trips.data?.items[0]?.id ||
+    '';
+  const detail = useQuery({
+    queryKey: ['driver', user.id, 'trip', selectedTrip],
+    queryFn: () => driverRead<Detail>(user.id, `/trips/${selectedTrip}`),
+    enabled: !!selectedTrip,
+    networkMode: 'always',
+    refetchInterval: online ? 30000 : false,
+  });
+  const stop = detail.data?.stops.find((item) => item.id === stopId);
+  async function enqueue(operation: DriverOperation) {
+    await saveOperation(operation);
+    await refreshQueue();
+    setNotice('Saved on this device. Awaiting server confirmation.');
+    if (navigator.onLine) await sync();
+  }
+  const pending = queue.filter((item) => !item.applied);
+  return (
+    <div className="mx-auto max-w-xl space-y-5 pb-8">
+      <div className="flex items-center justify-between text-sm">
+        <span className="flex items-center gap-2">
+          {online ? <Wifi size={17} /> : <WifiOff size={17} />}{' '}
+          {online ? 'Connected' : 'Offline · saved route'}
+        </span>
+        <span className="text-muted">{user.displayName}</span>
+      </div>
+      {pending.length > 0 && (
+        <div className="rounded-control border border-amber-200 bg-amber-50 p-4 text-sm">
+          <p>
+            {pending.length} action(s) awaiting confirmation. Keep this device’s data until synced.
+          </p>
+          <button
+            className="mt-3 flex items-center gap-2 font-medium underline"
+            disabled={busy || !online}
+            onClick={() => void sync()}
+          >
+            <RefreshCw size={16} />
+            {busy ? 'Synchronizing…' : 'Retry synchronization'}
+          </button>
+          {pending.find((item) => item.error)?.error && (
+            <p className="mt-2 text-red-800">{pending.find((item) => item.error)?.error}</p>
+          )}
+        </div>
+      )}
+      {notice && (
+        <p role="status" className="rounded-control border border-border bg-white p-4 text-sm">
+          {notice}
+        </p>
+      )}
+      {(trips.error || detail.error) && (
+        <p role="alert" className="rounded-control bg-red-50 p-4 text-sm text-red-800">
+          {(trips.error ?? detail.error)?.message}
+        </p>
+      )}
+      {stop && detail.data ? (
+        <DeliveryStop
+          key={stop.id}
+          actorId={user.id}
+          stop={stop}
+          trip={detail.data.trip}
+          queue={queue}
+          busy={busy}
+          enqueue={enqueue}
+          back={() => setStopId('')}
+        />
+      ) : (
+        <>
+          <h1 className="text-2xl font-semibold">Your routes</h1>
+          <label className="block text-sm">
+            Assigned trip
+            <select
+              className={field}
+              value={selectedTrip}
+              onChange={(event) => setTripId(event.target.value)}
+            >
+              <option value="">Choose a trip</option>
+              {trips.data?.items.map((trip) => (
+                <option key={trip.id} value={trip.id}>
+                  {trip.operating_date} · {trip.vehicle_id} · Trip {trip.trip_number}
+                </option>
+              ))}
+            </select>
+          </label>
+          {(trips.isPending || detail.isLoading) && <p role="status">Loading routes…</p>}
+          {trips.data?.items.length === 0 && (
+            <div className={panel}>No trips assigned yet. Released trips will appear here.</div>
+          )}
+          {detail.data && (
+            <>
+              <div className={`${panel} flex items-center gap-4`}>
+                <Truck size={28} />
+                <div>
+                  <h2 className="font-semibold">{detail.data.trip.vehicle_id}</h2>
+                  <p className="mt-1 text-sm text-muted">
+                    {detail.data.trip.status.replaceAll('_', ' ')} · {detail.data.stops.length}{' '}
+                    stops
+                  </p>
+                  <p className="text-xs text-muted">
+                    Load {detail.data.manifest?.status ?? 'WAITING'} · Inspection{' '}
+                    {detail.data.inspection ? 'recorded' : 'pending'}
+                  </p>
+                </div>
+              </div>
+              {detail.data.stops.map((item, index) => (
+                <button
+                  key={item.id}
+                  className={`${panel} flex w-full items-center gap-4 text-left`}
+                  onClick={() => setStopId(item.id)}
+                >
+                  <Package size={26} />
+                  <div className="flex-1">
+                    <strong>{item.public_reference}</strong>
+                    <p className="mt-1 text-sm">{item.outlet_name ?? `Stop ${index + 1}`}</p>
+                    <p className="mt-2 text-xs text-muted">
+                      Planned arrival {formatDate(item.planned_arrival_at)}
+                    </p>
+                    <p className="mt-1 text-xs">
+                      {item.attempt?.outcome ??
+                        (item.attempt ? 'Delivery in progress' : 'Awaiting arrival')}
+                    </p>
+                  </div>
+                  {item.attempt?.completed_at ? (
+                    <CheckCircle2 size={22} />
+                  ) : (
+                    <ArrowRight size={22} />
+                  )}
+                </button>
+              ))}
+              <TripActions
+                key={selectedTrip}
+                trip={detail.data.trip}
+                online={online}
+                refresh={() => void cache.invalidateQueries({ queryKey: ['driver', user.id] })}
+              />
+            </>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+function TripActions({
+  trip,
+  online,
+  refresh,
+}: {
+  trip: Trip;
+  online: boolean;
+  refresh: () => void;
+}) {
+  const [odometer, setOdometer] = useState('');
+  const [fuel, setFuel] = useState('');
+  const [temperature, setTemperature] = useState('');
+  const [fuelChecked, setFuelChecked] = useState(false);
+  const [chillerChecked, setChillerChecked] = useState(false);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  if (!['PLANNED', 'AWAITING_RETURN'].includes(trip.status)) return null;
+  const returning = trip.status === 'AWAITING_RETURN';
+  return (
+    <form
+      className={`${panel} space-y-4`}
+      onSubmit={async (event) => {
+        event.preventDefault();
+        setBusy(true);
+        setError('');
+        try {
+          await request(`/trips/${trip.id}/${returning ? 'return' : 'inspection'}`, {
+            method: returning ? 'POST' : 'PUT',
+            body: JSON.stringify(
+              returning
+                ? {
+                    returnedAt: new Date().toISOString(),
+                    endingOdometerKm: odometer,
+                    actualFuelL: fuel,
+                  }
+                : {
+                    startingOdometerKm: odometer,
+                    fuelChecked,
+                    chillerChecked,
+                    ...(temperature ? { temperatureC: temperature } : {}),
+                  },
+            ),
+          });
+          refresh();
+        } catch (cause) {
+          setError(cause instanceof Error ? cause.message : 'Unable to save');
+        } finally {
+          setBusy(false);
+        }
+      }}
+    >
+      <h2 className="font-semibold">{returning ? 'Return to depot' : 'Vehicle inspection'}</h2>
+      <label className="block text-sm">
+        {returning ? 'Ending' : 'Starting'} odometer (km)
+        <input
+          required
+          type="number"
+          min="0"
+          step="0.01"
+          className={field}
+          value={odometer}
+          onChange={(e) => setOdometer(e.target.value)}
+        />
+      </label>
+      {returning ? (
+        <label className="block text-sm">
+          Actual fuel used (L)
+          <input
+            required
+            min="0"
+            type="number"
+            step="0.01"
+            value={fuel}
+            onChange={(e) => setFuel(e.target.value)}
+            className={field}
+          />
+        </label>
+      ) : (
+        <>
+          <label className="flex gap-3 text-sm">
+            <input
+              type="checkbox"
+              checked={fuelChecked}
+              onChange={(e) => setFuelChecked(e.target.checked)}
+            />
+            Fuel checked
+          </label>
+          <label className="flex gap-3 text-sm">
+            <input
+              type="checkbox"
+              checked={chillerChecked}
+              onChange={(e) => setChillerChecked(e.target.checked)}
+            />
+            Chiller checked (reefer vehicles)
+          </label>
+          <label className="block text-sm">
+            Chiller temperature (°C)
+            <input
+              type="number"
+              step="0.1"
+              className={field}
+              value={temperature}
+              onChange={(e) => setTemperature(e.target.value)}
+            />
+          </label>
+        </>
+      )}
+      {error && (
+        <p role="alert" className="text-sm text-red-800">
+          {error}
+        </p>
+      )}
+      <button disabled={!online || busy} className={button}>
+        {busy ? 'Saving…' : returning ? 'Record return' : 'Save inspection'}
+      </button>
+    </form>
+  );
+}
+function DeliveryStop({
+  actorId,
+  stop,
+  trip,
+  queue,
+  busy,
+  enqueue,
+  back,
+}: {
+  actorId: string;
+  stop: Stop;
+  trip: Trip;
+  queue: DriverOperation[];
+  busy: boolean;
+  enqueue: (operation: DriverOperation) => Promise<void>;
+  back: () => void;
+}) {
+  const [receiver, setReceiver] = useState('');
+  const [temperature, setTemperature] = useState('');
+  const [checked, setChecked] = useState<Record<string, boolean>>({});
+  const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [signed, setSigned] = useState(false);
+  const canvas = useRef<HTMLCanvasElement>(null);
+  const drawing = useRef(false);
+  const arrival = queue.find((item) => item.stopId === stop.id && item.action === 'ARRIVAL');
+  const delivery = queue.find((item) => item.stopId === stop.id && item.action === 'DELIVERY');
+  const arrived = !!stop.attempt || !!arrival;
+  const completed = !!stop.attempt?.completed_at || !!delivery;
+  const envelope = () => ({
+    id: crypto.randomUUID(),
+    actorId,
+    stopId: stop.id,
+    planId: trip.plan_id,
+    planVersion: trip.version,
+    capturedAt: new Date().toISOString(),
+  });
+  async function act(kind: 'ARRIVAL' | 'DELIVERY') {
+    setSaving(true);
+    setError('');
+    try {
+      if (kind === 'ARRIVAL') await enqueue({ ...envelope(), action: kind });
+      else {
+        const proof = await new Promise<Blob>((resolve, reject) =>
+          canvas.current?.toBlob(
+            (blob) => (blob ? resolve(blob) : reject(new Error('Could not save signature.'))),
+            'image/png',
+          ),
+        );
+        const proofId = crypto.randomUUID();
+        const base = envelope();
+        const attemptId = stop.attempt?.id ?? arrival?.attemptId;
+        await enqueue({
+          ...base,
+          action: kind,
+          ...(attemptId ? { attemptId } : {}),
+          proof,
+          proofId,
+          payload: {
+            outcome: 'DELIVERED',
+            completedAt: base.capturedAt,
+            receiverName: receiver.trim(),
+            proofIds: [proofId],
+            ...(temperature ? { temperatureC: temperature } : {}),
+            ...(stop.aggregate
+              ? {
+                  deliveredUnits: stop.aggregate.units,
+                  deliveredWeightKg: stop.aggregate.weight_kg,
+                  deliveredVolumeM3: stop.aggregate.volume_m3,
+                }
+              : {
+                  lines: stop.lines.map((line) => ({
+                    orderLineId: line.id,
+                    deliveredQuantity: line.quantity,
+                    rejectedQuantity: 0,
+                  })),
+                }),
+          },
+        });
+      }
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Could not save action');
+    } finally {
+      setSaving(false);
+    }
+  }
+  return (
+    <div className="space-y-5">
+      <button onClick={back} className="flex min-h-11 items-center gap-2">
+        <ArrowLeft size={20} />
+        Route overview
+      </button>
+      <div className={panel}>
+        <MapPin size={26} />
+        <h1 className="mt-4 text-xl font-semibold">{stop.outlet_name ?? stop.public_reference}</h1>
+        <p className="mt-2 text-sm text-muted">
+          Planned arrival {formatDate(stop.planned_arrival_at)}
+        </p>
+        <p className="text-sm text-muted">Window closes {formatDate(stop.window_close_at)}</p>
+        <p className="mt-4 text-xs text-muted">
+          Exact outlet location has not been recorded. Confirm the destination with dispatch before
+          navigating.
+        </p>
+      </div>
+      <h2 className="font-semibold">
+        {stop.public_reference} · {stop.temperature_requirement}
+      </h2>
+      {trip.status !== 'DISPATCHED' && !completed && (
+        <p className="rounded-control bg-amber-50 p-4 text-sm">
+          Dispatch must authorize departure before arrival can be recorded.
+        </p>
+      )}
+      {completed ? (
+        <div className={`${panel} text-center`}>
+          <CheckCircle2 size={40} className="mx-auto mb-4" />
+          <h2 className="text-xl font-semibold">
+            {stop.attempt?.completed_at || delivery?.applied
+              ? 'Delivery confirmed'
+              : 'Delivery saved on this device'}
+          </h2>
+          <p className="mt-3 text-sm text-muted">
+            {stop.attempt?.completed_at || delivery?.applied
+              ? 'The server has recorded the delivery.'
+              : 'Awaiting synchronization. Keep this device’s data until confirmed.'}
+          </p>
+        </div>
+      ) : !arrived ? (
+        <button
+          className={button}
+          disabled={saving || busy || trip.status !== 'DISPATCHED'}
+          onClick={() => void act('ARRIVAL')}
+        >
+          Record arrival · Start delivery
+        </button>
+      ) : (
+        <>
+          <div className="space-y-3">
+            {stop.lines.map((line) => (
+              <label key={line.id} className={`${panel} flex items-center gap-3`}>
+                <input
+                  type="checkbox"
+                  className="h-5 w-5 accent-black"
+                  checked={!!checked[line.id]}
+                  onChange={(e) => setChecked({ ...checked, [line.id]: e.target.checked })}
+                />
+                <span className="flex-1">
+                  <strong className="text-sm">{line.name}</strong>
+                  <span className="block text-xs text-muted">{line.sku}</span>
+                </span>
+                <span>× {line.quantity}</span>
+              </label>
+            ))}
+            {stop.aggregate && (
+              <label className={`${panel} flex gap-3`}>
+                <input
+                  type="checkbox"
+                  checked={!!checked.aggregate}
+                  onChange={(e) => setChecked({ ...checked, aggregate: e.target.checked })}
+                />
+                Confirm {stop.aggregate.units} units · {stop.aggregate.weight_kg} kg ·{' '}
+                {stop.aggregate.volume_m3} m³ received
+              </label>
+            )}
+          </div>
+          <label className="block text-sm">
+            Receiver name
+            <input
+              className={field}
+              value={receiver}
+              onChange={(e) => setReceiver(e.target.value)}
+              maxLength={200}
+            />
+          </label>
+          {stop.temperature_requirement === 'chilled' && (
+            <label className="block text-sm">
+              Measured temperature (°C)
+              <input
+                className={field}
+                type="number"
+                step="0.1"
+                value={temperature}
+                onChange={(e) => setTemperature(e.target.value)}
+              />
+            </label>
+          )}
+          <div>
+            <p className="mb-2 text-sm">Receiver signature</p>
+            <canvas
+              ref={canvas}
+              width={600}
+              height={220}
+              aria-label="Receiver signature pad"
+              className="h-36 w-full touch-none rounded-control border border-border bg-white"
+              onPointerDown={(e) => {
+                e.currentTarget.setPointerCapture(e.pointerId);
+                drawing.current = true;
+                const rect = e.currentTarget.getBoundingClientRect();
+                const ctx = e.currentTarget.getContext('2d')!;
+                ctx.beginPath();
+                ctx.moveTo(
+                  ((e.clientX - rect.left) * 600) / rect.width,
+                  ((e.clientY - rect.top) * 220) / rect.height,
+                );
+              }}
+              onPointerMove={(e) => {
+                if (!drawing.current) return;
+                const rect = e.currentTarget.getBoundingClientRect();
+                const ctx = e.currentTarget.getContext('2d')!;
+                ctx.lineWidth = 3;
+                ctx.lineCap = 'round';
+                ctx.lineTo(
+                  ((e.clientX - rect.left) * 600) / rect.width,
+                  ((e.clientY - rect.top) * 220) / rect.height,
+                );
+                ctx.stroke();
+                setSigned(true);
+              }}
+              onPointerUp={() => {
+                drawing.current = false;
+              }}
+              onPointerCancel={() => {
+                drawing.current = false;
+              }}
+            />
+            <button
+              className="mt-2 text-xs underline"
+              onClick={() => {
+                canvas.current?.getContext('2d')?.clearRect(0, 0, 600, 220);
+                setSigned(false);
+              }}
+            >
+              Clear signature
+            </button>
+          </div>
+          <button
+            className={button}
+            disabled={
+              saving ||
+              busy ||
+              !signed ||
+              !receiver.trim() ||
+              (stop.temperature_requirement === 'chilled' && !temperature) ||
+              (stop.aggregate ? !checked.aggregate : !stop.lines.every((line) => checked[line.id]))
+            }
+            onClick={() => void act('DELIVERY')}
+          >
+            {saving ? 'Saving…' : 'Confirm full delivery'}
+          </button>
+        </>
+      )}
+      {error && (
+        <p role="alert" className="text-sm text-red-800">
+          {error}
+        </p>
+      )}
+    </div>
+  );
+}

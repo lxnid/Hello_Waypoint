@@ -13,6 +13,21 @@ export const PageQuerySchema = object({
   cursor: Type.Optional(Type.String({ maxLength: 200 })),
   depot: Type.Optional(DepotSchema),
 });
+export const OrderQuerySchema = object({
+  ...PageQuerySchema.properties,
+  q: Type.Optional(Type.String({ maxLength: 120 })),
+  brand: Type.Optional(Type.String({ maxLength: 100 })),
+  district: Type.Optional(Type.String({ maxLength: 100 })),
+  temperature: Type.Optional(Type.Union([Type.Literal('ambient'), Type.Literal('chilled')])),
+  status: Type.Optional(
+    Type.Union(
+      ['DRAFT', 'SUBMITTED', 'COMPLETED', 'CLOSED_EXCEPTION', 'CANCELLED'].map((value) =>
+        Type.Literal(value),
+      ),
+    ),
+  ),
+  deferred: Type.Optional(Type.Boolean()),
+});
 export const ContextInputSchema = object({ operatingDate: date() });
 export const PlanInputSchema = object({ contextId: uuid(), depot: DepotSchema });
 export const DeferInputSchema = object({
@@ -275,8 +290,26 @@ export const CatalogRowSchema = row({
 });
 export const PageResponse = (item: TSchema) =>
   object({ items: Type.Array(item), nextCursor: nullable(Type.String()) });
+export const OrdersResponseSchema = object({
+  ...PageResponse(OrderRowSchema).properties,
+  summary: object({
+    total: quantity(),
+    chilled: quantity(),
+    ambient: quantity(),
+    fresh: quantity(),
+    textile: quantity(),
+    fragile: quantity(),
+    deferred: quantity(),
+  }),
+  filters: object({
+    brands: Type.Array(object({ id: Type.String(), name: Type.String() })),
+    districts: Type.Array(object({ id: Type.String(), name: Type.String() })),
+    statuses: Type.Array(Type.String()),
+  }),
+});
 export const OrderDetailSchema = object({
   order: OrderRowSchema,
+  outlet: Type.Record(Type.String(), Type.Unknown()),
   lines: Type.Array(LineRowSchema),
   aggregate: nullable(Type.Record(Type.String(), Type.Unknown())),
   decisions: Type.Array(DecisionRowSchema),

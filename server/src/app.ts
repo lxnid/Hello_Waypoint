@@ -18,6 +18,7 @@ import type { Database } from './db/client.js';
 import type { SessionIdentity } from './modules/auth/service.js';
 import { getSession } from './modules/auth/service.js';
 import { authRoutes } from './modules/auth/routes.js';
+import { dispatchReferenceRoutes } from './modules/operations/dispatch-reference.js';
 import { workflowRoutes } from './modules/operations/api.js';
 import { planningRoutes } from './modules/operations/routes.js';
 import { portalRoutes } from './modules/portal/routes.js';
@@ -235,6 +236,7 @@ export async function buildApp(config: Config, db: Database): Promise<FastifyIns
   await app.register(portalRoutes, { prefix: '/api/v1/portal' });
   await app.register(planningRoutes, { prefix: '/api/v1/planning' });
   await app.register(workflowRoutes, { prefix: '/api/v1' });
+  await app.register(dispatchReferenceRoutes, { prefix: '/api/v1' });
 
   if (config.serveClient) {
     const root = join(fileURLToPath(new URL('.', import.meta.url)), '../../client/dist');

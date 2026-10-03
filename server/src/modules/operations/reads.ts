@@ -53,20 +53,73 @@ export function page<
         : null,
   };
 }
-export async function listOrders(db: Database, userId: string, query: Page) {
+export type OrderQuery = Page & {
+  q?: string;
+  brand?: string;
+  district?: string;
+  temperature?: 'ambient' | 'chilled';
+  status?: string;
+  deferred?: boolean;
+};
+export async function listOrders(db: Database, userId: string, query: OrderQuery) {
   const user = await actor(db, userId),
     c = cursor(query.cursor),
     limit = query.limit ?? 25;
-  const rows = await db.execute<{ id: string; created_at: string }>(
-    sql`SELECT o.id,o.public_reference,o.outlet_id,ot.name AS outlet_name,ot.brand_id,b.name AS brand_name,ot.district_id,d.name AS district_name,d.depot_id,o.format,o.temperature_requirement,o.requested_date::text,o.eligible_date::text,o.status,o.submitted_at,o.created_at,coalesce((SELECT sum(l.quantity)::int FROM order_lines l WHERE l.order_id=o.id),(SELECT a.units FROM order_aggregates a WHERE a.order_id=o.id),0)::int AS order_size FROM orders o JOIN outlets ot ON ot.id=o.outlet_id JOIN brands b ON b.id=ot.brand_id JOIN districts d ON d.id=ot.district_id WHERE ${orderScope(user)} AND (${query.depot ?? null}::text IS NULL OR d.depot_id=${query.depot ?? null}) AND (${c?.at ?? null}::timestamptz IS NULL OR (o.created_at,o.id)<(${c?.at ?? null}::timestamptz,${c?.id ?? null}::uuid)) ORDER BY o.created_at DESC,o.id DESC LIMIT ${limit + 1}`,
-  );
-  return page([...rows], limit);
+  const search = query.q?.trim();
+  // Escape LIKE metacharacters: a user search is literal, never a wildcard expression.
+  const pattern = search ? `%${search.replace(/[\\%_]/g, '\\$&')}%` : null;
+  const [result] = await db.execute<{
+    rows: { id: string; created_at: string }[];
+    summary: Record<string, number>;
+    filters: Record<string, unknown>;
+  }>(sql`
+    WITH scoped AS MATERIALIZED (
+      SELECT o.*,ot.name AS outlet_name,ot.brand_id,b.name AS brand_name,ot.district_id,d.name AS district_name,d.depot_id,
+        coalesce(l.units,a.units,0)::int AS order_size,coalesce(l.weight_kg,a.weight_kg,0)::text AS weight_kg,coalesce(l.volume_m3,a.volume_m3,0)::text AS volume_m3,
+        po.decision AS latest_decision,coalesce(po.decision='DEFERRED' AND o.status='SUBMITTED',false) AS deferred,
+        po.last_served_date,po.days_since_last_served,po.priority_as_of_date,
+        CASE WHEN po.days_since_last_served IS NULL THEN 'UNKNOWN' ELSE 'SNAPSHOT' END AS history_status,
+        po.priority_source AS history_source,po.reason_code AS deferral_reason,po.next_eligible_date
+      FROM orders o JOIN outlets ot ON ot.id=o.outlet_id JOIN brands b ON b.id=ot.brand_id JOIN districts d ON d.id=ot.district_id
+      LEFT JOIN order_aggregates a ON a.order_id=o.id
+      LEFT JOIN LATERAL (SELECT sum(quantity)::int AS units,sum(quantity*unit_weight_kg) AS weight_kg,sum(quantity*unit_volume_m3) AS volume_m3 FROM order_lines WHERE order_id=o.id) l ON true
+      LEFT JOIN LATERAL (SELECT po.* FROM plan_orders po JOIN plans p ON p.id=po.plan_id JOIN planning_contexts pc ON pc.id=p.context_id WHERE po.order_id=o.id AND p.status<>'DRAFT' ORDER BY pc.operating_date DESC,po.created_at DESC,po.id DESC LIMIT 1) po ON true
+      WHERE ${orderScope(user)} AND (${query.depot ?? null}::text IS NULL OR d.depot_id=${query.depot ?? null})
+    ), filtered AS MATERIALIZED (
+      SELECT * FROM scoped WHERE (${pattern}::text IS NULL OR public_reference ILIKE ${pattern} OR outlet_name ILIKE ${pattern} OR outlet_id ILIKE ${pattern})
+      AND (${query.brand ?? null}::text IS NULL OR brand_id=${query.brand ?? null})
+      AND (${query.district ?? null}::text IS NULL OR district_id=${query.district ?? null})
+      AND (${query.temperature ?? null}::text IS NULL OR temperature_requirement::text=${query.temperature ?? null})
+      AND (${query.status ?? null}::text IS NULL OR status::text=${query.status ?? null})
+      AND (${query.deferred ?? null}::boolean IS NULL OR deferred=${query.deferred ?? null})
+    ) SELECT
+      coalesce((SELECT jsonb_agg(to_jsonb(r) ORDER BY r.created_at DESC,r.id DESC) FROM (SELECT * FROM filtered WHERE (${c?.at ?? null}::timestamptz IS NULL OR (created_at,id)<(${c?.at ?? null}::timestamptz,${c?.id ?? null}::uuid)) ORDER BY created_at DESC,id DESC LIMIT ${limit + 1}) r),'[]') AS rows,
+      (SELECT jsonb_build_object('total',count(*)::int,'chilled',count(*) FILTER (WHERE temperature_requirement='chilled')::int,'ambient',count(*) FILTER (WHERE temperature_requirement='ambient')::int,'fresh',count(*) FILTER (WHERE brand_id='Fresh')::int,'textile',count(*) FILTER (WHERE brand_id='Style')::int,'fragile',count(*) FILTER (WHERE brand_id='Tech')::int,'deferred',count(*) FILTER (WHERE deferred)::int) FROM filtered) AS summary,
+      jsonb_build_object('brands',coalesce((SELECT jsonb_agg(to_jsonb(b) ORDER BY b.name) FROM (SELECT DISTINCT brand_id AS id,brand_name AS name FROM scoped) b),'[]'),
+        'districts',coalesce((SELECT jsonb_agg(to_jsonb(d) ORDER BY d.name) FROM (SELECT DISTINCT district_id AS id,district_name AS name FROM scoped) d),'[]'),
+        'statuses',coalesce((SELECT jsonb_agg(status ORDER BY status) FROM (SELECT DISTINCT status FROM scoped) s),'[]')) AS filters
+  `);
+  return { ...page(result!.rows, limit), summary: result!.summary, filters: result!.filters };
+}
+export async function referenceStores(db: Database, userId: string) {
+  const user = await actor(db, userId);
+  if (user.role !== 'DISPATCHER') throw new WorkflowError('Dispatcher only', 403);
+  return [
+    ...(await db.execute(
+      sql`SELECT o.*,b.name AS brand_name,d.name AS district_name,d.depot_id FROM outlets o JOIN brands b ON b.id=o.brand_id JOIN districts d ON d.id=o.district_id ORDER BY o.name NULLS LAST,o.id`,
+    )),
+  ];
+}
+export async function referenceFleet(db: Database, userId: string) {
+  const user = await actor(db, userId);
+  if (user.role !== 'DISPATCHER') throw new WorkflowError('Dispatcher only', 403);
+  return [...(await db.execute(sql`SELECT v.* FROM vehicles v ORDER BY v.depot_id,v.id`))];
 }
 export async function orderDetail(db: Database, userId: string, id: string) {
   const user = await actor(db, userId);
   await assertOrderScope(db, user, id);
   const [result] = await db.execute<{ data: Record<string, unknown> }>(
-    sql`SELECT jsonb_build_object('order',to_jsonb(o),'lines',coalesce((SELECT jsonb_agg(to_jsonb(l) ORDER BY l.line_number) FROM order_lines l WHERE l.order_id=o.id),'[]'),'aggregate',(SELECT to_jsonb(a) FROM order_aggregates a WHERE a.order_id=o.id),'decisions',coalesce((SELECT jsonb_agg(to_jsonb(po)||jsonb_build_object('plan_status',p.status,'operating_date',c.operating_date) ORDER BY c.operating_date DESC) FROM plan_orders po JOIN plans p ON p.id=po.plan_id JOIN planning_contexts c ON c.id=p.context_id WHERE po.order_id=o.id AND (${user.role}='DISPATCHER' OR p.status<>'DRAFT')),'[]'),'stops',coalesce((SELECT jsonb_agg(to_jsonb(s)||jsonb_build_object('trip_status',t.status)) FROM trip_stops s JOIN trips t ON t.id=s.trip_id JOIN plans p ON p.id=t.plan_id WHERE s.order_id=o.id AND p.status<>'DRAFT'),'[]'),'attempts',coalesce((SELECT jsonb_agg(to_jsonb(a)||jsonb_build_object('receipt',(SELECT to_jsonb(r) FROM receipts r WHERE r.attempt_id=a.id),'lines',(SELECT jsonb_agg(to_jsonb(l)) FROM delivery_line_records l WHERE l.attempt_id=a.id))) FROM delivery_attempts a WHERE a.order_id=o.id),'[]'),'issues',coalesce((SELECT jsonb_agg(to_jsonb(i)) FROM issues i WHERE i.order_id=o.id),'[]'),'predictionStatus','UNAVAILABLE') AS data FROM orders o WHERE o.id=${id}`,
+    sql`SELECT jsonb_build_object('order',to_jsonb(o),'outlet',(SELECT to_jsonb(ot)||jsonb_build_object('brand_name',b.name,'district_name',d.name,'depot_id',d.depot_id) FROM outlets ot JOIN brands b ON b.id=ot.brand_id JOIN districts d ON d.id=ot.district_id WHERE ot.id=o.outlet_id),'lines',coalesce((SELECT jsonb_agg(to_jsonb(l) ORDER BY l.line_number) FROM order_lines l WHERE l.order_id=o.id),'[]'),'aggregate',(SELECT to_jsonb(a) FROM order_aggregates a WHERE a.order_id=o.id),'decisions',coalesce((SELECT jsonb_agg(to_jsonb(po)||jsonb_build_object('plan_status',p.status,'operating_date',c.operating_date) ORDER BY c.operating_date DESC) FROM plan_orders po JOIN plans p ON p.id=po.plan_id JOIN planning_contexts c ON c.id=p.context_id WHERE po.order_id=o.id AND (${user.role}='DISPATCHER' OR p.status<>'DRAFT')),'[]'),'stops',coalesce((SELECT jsonb_agg(to_jsonb(s)||jsonb_build_object('trip_status',t.status)) FROM trip_stops s JOIN trips t ON t.id=s.trip_id JOIN plans p ON p.id=t.plan_id WHERE s.order_id=o.id AND p.status<>'DRAFT'),'[]'),'attempts',coalesce((SELECT jsonb_agg(to_jsonb(a)||jsonb_build_object('receipt',(SELECT to_jsonb(r) FROM receipts r WHERE r.attempt_id=a.id),'lines',(SELECT jsonb_agg(to_jsonb(l)) FROM delivery_line_records l WHERE l.attempt_id=a.id))) FROM delivery_attempts a WHERE a.order_id=o.id),'[]'),'issues',coalesce((SELECT jsonb_agg(to_jsonb(i)) FROM issues i WHERE i.order_id=o.id),'[]'),'predictionStatus','UNAVAILABLE') AS data FROM orders o WHERE o.id=${id}`,
   );
   return result!.data;
 }

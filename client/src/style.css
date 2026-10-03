@@ -34,9 +34,23 @@
     margin: 0;
   }
 
+  a,
   button,
-  a {
+  [role="button"],
+  [type="button"],
+  [type="submit"],
+  [type="reset"],
+  select,
+  summary {
+    cursor: pointer;
     -webkit-tap-highlight-color: transparent;
+  }
+
+  button:disabled,
+  [aria-disabled="true"],
+  input:disabled,
+  select:disabled {
+    cursor: not-allowed;
   }
 
   h1,

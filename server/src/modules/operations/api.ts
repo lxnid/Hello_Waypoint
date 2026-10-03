@@ -95,7 +95,7 @@ export const workflowRoutes: FastifyPluginAsync = async (app) => {
           ...(description ? { description } : {}),
           security: [{ cookieAuth: [] }],
           ...(path.includes(':id') ? { params: C.IdParamsSchema } : {}),
-          querystring: C.PageQuerySchema,
+          querystring: path === '/orders' ? C.OrderQuerySchema : C.PageQuerySchema,
           response: {
             200: response,
             400: ErrorSchema,
@@ -214,7 +214,7 @@ export const workflowRoutes: FastifyPluginAsync = async (app) => {
   read(
     '/orders',
     'List orders',
-    C.PageResponse(C.OrderRowSchema),
+    C.OrdersResponseSchema,
     (a, _id, q) => listOrders(app.db, a, q),
     undefined,
     'Paginated order list scoped to caller role, depot, or outlet',
@@ -313,7 +313,7 @@ export const workflowRoutes: FastifyPluginAsync = async (app) => {
     ),
     async () => [
       ...(await app.db.execute(
-        sql`SELECT id,name,depot_id FROM users WHERE role='DRIVER' AND is_active ORDER BY depot_id,id`,
+        sql`SELECT id,display_name AS name,depot_id FROM users WHERE role='DRIVER' AND is_active ORDER BY depot_id,id`,
       )),
     ],
     'DISPATCHER',

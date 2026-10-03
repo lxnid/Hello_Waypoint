@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { parse } from 'csv-parse/sync';
 import { hash } from 'bcryptjs';
+import { seedUiDemo } from './ui-demo-seed.js';
 import { seedDemoWorkflow } from './demo-seed.js';
 import { seedPlanningReferences } from './reference-seed.js';
 import { loadConfig } from '../config/env.js';
@@ -177,6 +178,7 @@ export async function seed(databaseUrl: string, demoPassword: string): Promise<v
           .onConflictDoNothing();
     });
     await seedDemoWorkflow(db);
+    await seedUiDemo(db);
     console.info(
       `Seed complete: ${outletRows.length} outlets, ${vehicleRows.length} vehicles, four demo accounts`,
     );

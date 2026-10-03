@@ -23,7 +23,7 @@ export function Brand({
     >
       <span className={`text-[22px] font-extrabold leading-none ${wordClassName}`}>WAYPOINT</span>
       <span
-        className={`text-[15px] font-normal leading-none max-[390px]:hidden ${contextClassName}`}
+        className={`text-[15px] font-normal leading-none ${contextClassName}`}
       >
         {context}
       </span>
