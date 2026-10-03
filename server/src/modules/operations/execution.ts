@@ -34,7 +34,7 @@ async function scopedStop(
   }>(sql`
     SELECT t.id AS trip_id,s.order_id,p.depot_id,t.driver_id,o.outlet_id,o.format,o.temperature_requirement,t.status
     FROM trip_stops s JOIN trips t ON t.id=s.trip_id JOIN plans p ON p.id=t.plan_id JOIN orders o ON o.id=s.order_id
-    WHERE s.id=${stopId} AND p.status='RELEASED' FOR UPDATE OF t`);
+    WHERE s.id=${stopId} AND p.status IN ('RELEASED','COMPLETED') FOR UPDATE OF t`);
   if (
     !context ||
     (role === 'STORE_MANAGER'
@@ -193,14 +193,20 @@ export async function completeDelivery(
     lines?: { orderLineId: string; deliveredQuantity: number; rejectedQuantity: number }[];
   },
 ) {
-  const [attempt] = await tx
+  let [attempt] = await tx
     .select()
     .from(deliveryAttempts)
     .where(eq(deliveryAttempts.id, attemptId));
   if (!attempt) throw new WorkflowError('Unknown delivery attempt');
   const context = await scopedStop(tx, attempt.stopId, actorId, 'DRIVER');
+  [attempt] = await tx
+    .select()
+    .from(deliveryAttempts)
+    .where(eq(deliveryAttempts.id, attemptId))
+    .for('update');
   if (
     context.status !== 'DISPATCHED' ||
+    !attempt ||
     attempt.completedAt ||
     !attempt.arrivedAt ||
     input.completedAt < attempt.arrivedAt
@@ -253,7 +259,12 @@ export async function completeDelivery(
     sql`SELECT 1 FROM trip_stops s WHERE s.trip_id=${context.trip_id} AND NOT EXISTS(SELECT 1 FROM delivery_attempts a WHERE a.stop_id=s.id AND a.completed_at IS NOT NULL) LIMIT 1`,
   );
   if (!pending.length)
-    await tx.update(trips).set({ status: 'COMPLETED' }).where(eq(trips.id, context.trip_id));
+    await tx.update(trips).set({ status: 'AWAITING_RETURN' }).where(eq(trips.id, context.trip_id));
+  if (input.outcome === 'FAILED' || input.outcome === 'REJECTED')
+    await tx
+      .update(orders)
+      .set({ status: 'CLOSED_EXCEPTION' })
+      .where(eq(orders.id, context.order_id));
   await tx.insert(auditEvents).values({
     actorId,
     action: 'DELIVERY_COMPLETED',
@@ -333,8 +344,12 @@ export async function confirmReceipt(
     await tx
       .insert(receiptLines)
       .values({ receiptId: attemptId, orderId: context.order_id, ...line });
-  if (['DELIVERED', 'PARTIAL'].includes(input.outcome))
-    await tx.update(orders).set({ status: 'COMPLETED' }).where(eq(orders.id, context.order_id));
+  await tx
+    .update(orders)
+    .set({
+      status: ['DELIVERED', 'PARTIAL'].includes(input.outcome) ? 'COMPLETED' : 'CLOSED_EXCEPTION',
+    })
+    .where(eq(orders.id, context.order_id));
   await tx.insert(auditEvents).values({
     actorId,
     action: 'RECEIPT_CONFIRMED',

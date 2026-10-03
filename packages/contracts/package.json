@@ -17,6 +17,10 @@
     "./operations": {
       "types": "./dist/operations.d.ts",
       "default": "./dist/operations.js"
+    },
+    "./workflows": {
+      "types": "./dist/workflows.d.ts",
+      "default": "./dist/workflows.js"
     }
   },
   "scripts": {

@@ -156,6 +156,4 @@ Use `pnpm verify:database` to run migrations and all integration tests in the Co
 `waypoint_schema_test` database. Schema integration tests refuse a database whose name does not end in
 `_test`. The Compose test overlay mounts current sources/migrations read-only into the app image.
 
-The data model and backend transaction helpers are implemented here. Operational UI screens, HTTP
-workflow routes, private attachment storage, the browser offline queue and model inference remain
-application features to wire to these interfaces; the existing authentication/portal remains usable.
+The backend exposes role-scoped HTTP workflows for orders, assisted plan drafting and release, manifests, loading, inspection, dispatch, delivery, receipt, exceptions, proof upload/download, offline command replay, return/fuel closeout, and audit reads. Proof binaries are stored in a private persistent Docker volume and checked against database SHA-256 metadata. Browser operational screens and their IndexedDB/service-worker outbox remain to be wired; model inference remains unavailable and is reported explicitly.

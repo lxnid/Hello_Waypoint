@@ -1,6 +1,6 @@
 # Waypoint Logistics
 
-Stage 1 of the Tech-Triathlon Hackathon implementation. The system will connect ordering, allocation, loading, delivery, and receipt across four roles. This stage establishes the deployable foundation: reference data, authentication, role context, and a documented API.
+Waypoint Logistics connects ordering, assisted fleet planning, loading, delivery, receipt, proof, and claims across four roles. The backend runs as Docker services with PostgreSQL and Drizzle migrations.
 
 ## Quick start
 
@@ -10,7 +10,7 @@ Install Docker Desktop, then run:
 docker compose up --build
 ```
 
-Open [Waypoint](http://localhost:3000) or [Swagger UI](http://localhost:3000/docs). The database, migrations, and seed run automatically. The seed may safely run again without duplicating rows.
+Open [Waypoint](http://localhost:3000) or [Swagger UI](http://localhost:3000/docs). Compose waits for PostgreSQL and the Drizzle migration service before starting the app. In another terminal, seed reference data and demo accounts with `docker compose --profile demo run --rm seed`.
 
 ## Demo accounts
 
@@ -69,8 +69,8 @@ The submitted Designathon PDF and live prototype are the visual and workflow bas
 
 ## Competition data
 
-`data/reference` contains the two source CSVs needed for foundation seeding. They are synthetic competition data and should be handled according to the challenge booklet's publication rules. Do not publish this repository or the data without organizer authorization.
+`data/reference` contains the source CSVs needed for reference seeding. They are synthetic competition data and should be handled according to the challenge booklet's publication rules. Do not publish this repository or the data without organizer authorization.
 
 ## Operational data foundation
 
-The schema includes the full workflow and transactional backend helpers. A synthetic scenario dated 2026-03-30 seeds a released trip with a waiting load manifest and a deferred chilled order. Operational screens and HTTP workflow endpoints are still to be connected; the current portal remains the foundation view. See [the data model](docs/data-model.md) for lifecycles, constraints, indexes, CSV import/export interfaces, and Docker verification.
+The backend exposes role-scoped APIs for orders, assisted planning, manifests, loading, dispatch, delivery, receipts, proof, exception claims, replay, and return/fuel closure. Proof files persist on a private Docker volume. Operational browser screens and durable browser-side offline storage remain to be connected. Run `docker compose --profile demo run --rm seed` to create the synthetic released-plan walkthrough. See [the data model](docs/data-model.md) for lifecycles, constraints, indexes, CSV import/export, and Docker verification.

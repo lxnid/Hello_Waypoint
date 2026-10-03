@@ -22,6 +22,7 @@ docker([
   'docker-compose.test.yml',
   'run',
   '--rm',
+  '--no-deps',
   'app',
   'sh',
   '-c',

@@ -40,6 +40,10 @@ export async function releasePlan(
         affected.map((row) => row.outlet_id),
       );
     }
+    await tx.execute(sql`SELECT id FROM planning_contexts WHERE id=${plan.contextId} FOR UPDATE`);
+    await tx.execute(
+      sql`SELECT id FROM users WHERE id IN (SELECT driver_id FROM trips WHERE plan_id=${planId}) ORDER BY id FOR UPDATE`,
+    );
     // All releases lock orders and vehicles in the same order, across depots and plans.
     await tx.execute(
       sql`SELECT o.id FROM orders o JOIN plan_orders po ON po.order_id=o.id WHERE po.plan_id=${planId} ORDER BY o.id FOR UPDATE OF o`,
@@ -118,6 +122,15 @@ export async function releasePlan(
         OR planned_arrival_at+service_allowance_minutes*interval '1 minute'>window_close_at LIMIT 1`);
     if (invalidSequence.length)
       throw new WorkflowError('Invalid stop sequence or planned chronology');
+    const invalidTravel = await tx.execute(
+      sql`SELECT 1 FROM trip_stops s JOIN trips t ON t.id=s.trip_id JOIN district_travel dt ON dt.district_id=t.district_id WHERE s.plan_id=${planId} AND (s.planned_travel_minutes<>CASE WHEN s.sequence=0 THEN dt.depot_to_district_freeflow_minutes ELSE dt.inter_stop_freeflow_minutes END OR s.distance_km<>CASE WHEN s.sequence=0 THEN dt.depot_to_district_km ELSE dt.inter_stop_km END OR (s.planned_depart_at AT TIME ZONE 'Asia/Colombo')::date<>${context.operating_date}::date OR (t.brand_id='Fresh' AND (s.planned_depart_at AT TIME ZONE 'Asia/Colombo')::time<'03:30'::time) OR (t.brand_id<>'Fresh' AND (s.planned_depart_at AT TIME ZONE 'Asia/Colombo')::time<'08:00'::time)) LIMIT 1`,
+    );
+    if (invalidTravel.length)
+      throw new WorkflowError('Travel schedule does not match published references');
+    const overlaps = await tx.execute(
+      sql`WITH intervals AS (SELECT t.id,t.plan_id,t.vehicle_id,t.driver_id,p.context_id,p.status,min(s.planned_depart_at) AS starts,max(s.planned_arrival_at+s.service_allowance_minutes*interval '1 minute')+dt.depot_to_district_freeflow_minutes*interval '1 minute' AS ends FROM trips t JOIN plans p ON p.id=t.plan_id JOIN trip_stops s ON s.trip_id=t.id JOIN district_travel dt ON dt.district_id=t.district_id WHERE p.context_id=${plan.contextId} AND (p.id=${planId} OR p.status<>'DRAFT') GROUP BY t.id,p.id,dt.depot_to_district_freeflow_minutes) SELECT 1 FROM intervals a JOIN intervals b ON a.id<>b.id AND (a.vehicle_id=b.vehicle_id OR a.driver_id=b.driver_id) AND a.starts<b.ends AND b.starts<a.ends WHERE a.plan_id=${planId} LIMIT 1`,
+    );
+    if (overlaps.length) throw new WorkflowError('Vehicle or driver schedules overlap');
     const data = await tx.execute<{
       id: string;
       vehicle_id: string;
@@ -219,6 +232,14 @@ export async function releasePlan(
       entityId: planId,
       details: { version: version + 1, tripCount: data.length },
     });
+    if (!data.length) {
+      const [completed] = await tx
+        .update(plans)
+        .set({ status: 'COMPLETED' })
+        .where(eq(plans.id, planId))
+        .returning();
+      return completed!;
+    }
     return released!;
   });
 }

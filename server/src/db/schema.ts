@@ -33,11 +33,17 @@ export const orderStatusEnum = pgEnum('order_status', [
   'DRAFT',
   'SUBMITTED',
   'COMPLETED',
+  'CLOSED_EXCEPTION',
   'CANCELLED',
 ]);
 export const planStatusEnum = pgEnum('plan_status', ['DRAFT', 'RELEASED', 'COMPLETED']);
 export const decisionEnum = pgEnum('planning_decision', ['UNASSIGNED', 'ALLOCATED', 'DEFERRED']);
-export const tripStatusEnum = pgEnum('trip_status', ['PLANNED', 'DISPATCHED', 'COMPLETED']);
+export const tripStatusEnum = pgEnum('trip_status', [
+  'PLANNED',
+  'DISPATCHED',
+  'AWAITING_RETURN',
+  'COMPLETED',
+]);
 export const loadStatusEnum = pgEnum('load_status', ['WAITING', 'LOADING', 'COMPLETED']);
 export const outcomeEnum = pgEnum('delivery_outcome', [
   'DELIVERED',
@@ -1131,4 +1137,23 @@ export const syncOperations = pgTable(
     result: jsonb('result').$type<Record<string, unknown>>().notNull(),
   },
   (t) => [unique('sync_operations_replay_unique').on(t.actorId, t.clientOperationId)],
+);
+
+export const tripClosures = pgTable(
+  'trip_closures',
+  {
+    tripId: uuid('trip_id')
+      .primaryKey()
+      .references(() => trips.id),
+    driverId: uuid('driver_id')
+      .notNull()
+      .references(() => users.id),
+    returnedAt: instant('returned_at').notNull(),
+    endingOdometerKm: amount('ending_odometer_km').notNull(),
+    actualFuelL: volume('actual_fuel_l').notNull(),
+    recordedAt: created(),
+  },
+  (t) => [
+    check('trip_closures_values_check', sql`${t.endingOdometerKm} >= 0 AND ${t.actualFuelL} >= 0`),
+  ],
 );

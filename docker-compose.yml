@@ -16,12 +16,44 @@ services:
       timeout: 3s
       retries: 20
 
-  app:
+  migrate:
     build: .
+    image: hello_waypoint-app
     depends_on:
       database:
         condition: service_healthy
     environment:
+      NODE_ENV: development
+      DATABASE_URL: postgresql://${POSTGRES_USER:-waypoint}:${POSTGRES_PASSWORD:-waypoint_local}@database:5432/${POSTGRES_DB:-waypoint}
+      JWT_SECRET: ${JWT_SECRET:-local-demo-only-change-this-secret-before-public-deployment-2026}
+      APP_ORIGIN: ${APP_ORIGIN:-http://localhost:3000}
+    command: ['pnpm', 'db:migrate']
+
+  seed:
+    image: hello_waypoint-app
+    profiles: [demo]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-waypoint}:${POSTGRES_PASSWORD:-waypoint_local}@database:5432/${POSTGRES_DB:-waypoint}
+      JWT_SECRET: ${JWT_SECRET:-local-demo-only-change-this-secret-before-public-deployment-2026}
+      APP_ORIGIN: ${APP_ORIGIN:-http://localhost:3000}
+      DEMO_PASSWORD: ${DEMO_PASSWORD:-Peliyagoda2026!}
+    command: ['pnpm', 'db:seed']
+
+  app:
+    build: .
+    image: hello_waypoint-app
+    depends_on:
+      database:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    volumes:
+      - waypoint_proofs:/var/lib/waypoint/proofs
+    environment:
+      PROOF_STORAGE_PATH: /var/lib/waypoint/proofs
       NODE_ENV: development
       HOST: 0.0.0.0
       PORT: 3000
@@ -48,3 +80,4 @@ services:
 
 volumes:
   waypoint_postgres:
+  waypoint_proofs:

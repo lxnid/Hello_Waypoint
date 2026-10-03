@@ -38,7 +38,11 @@ export async function requireActor(
   return actor;
 }
 
-export async function createOrderDraft(db: Database, actorId: string, input: CreateOrder) {
+export async function createOrderDraft(
+  db: Database | Transaction,
+  actorId: string,
+  input: CreateOrder,
+) {
   return db.transaction(async (tx) => {
     const actor = await requireActor(tx, actorId, 'STORE_MANAGER');
     if (!actor.outletId || !input.lines.length)
@@ -93,7 +97,12 @@ export function cutoffRunOffset(at: Date): number {
     local.getUTCMilliseconds();
   return milliseconds <= 16 * 60 * 60 * 1000 ? 0 : 1;
 }
-export async function submitOrder(db: Database, orderId: string, actorId: string, at = new Date()) {
+export async function submitOrder(
+  db: Database | Transaction,
+  orderId: string,
+  actorId: string,
+  at = new Date(),
+) {
   return db.transaction(async (tx) => {
     const actor = await requireActor(tx, actorId, 'STORE_MANAGER');
     const [order] = await tx.select().from(orders).where(eq(orders.id, orderId)).for('update');
@@ -267,7 +276,7 @@ export async function authorizeDeparture(db: Database, tripId: string, actorId: 
     if (!trip || trip.status !== 'PLANNED')
       throw new WorkflowError('Trip is not ready for departure');
     const readiness = await tx.execute(
-      sql`SELECT 1 FROM load_manifests m JOIN trip_inspections i ON i.trip_id=m.trip_id JOIN plans p ON p.id=${trip.planId} WHERE m.trip_id=${tripId} AND m.status='COMPLETED' AND p.status='RELEASED' AND i.driver_id=${trip.driverId} AND i.fuel_checked AND (NOT EXISTS (SELECT 1 FROM trip_stops s JOIN orders o ON o.id=s.order_id WHERE s.trip_id=${tripId} AND o.temperature_requirement='chilled') OR (i.chiller_checked AND i.temperature_c <= 4))`,
+      sql`SELECT 1 FROM load_manifests m JOIN trip_inspections i ON i.trip_id=m.trip_id JOIN plans p ON p.id=${trip.planId} WHERE m.trip_id=${tripId} AND m.status='COMPLETED' AND p.status='RELEASED' AND i.driver_id=${trip.driverId} AND i.fuel_checked AND (NOT EXISTS (SELECT 1 FROM trip_stops s JOIN orders o ON o.id=s.order_id WHERE s.trip_id=${tripId} AND o.temperature_requirement='chilled') OR (i.chiller_checked AND i.temperature_c <= 4)) AND NOT EXISTS (SELECT 1 FROM issues x JOIN trip_stops s ON s.id=x.stop_id WHERE s.trip_id=${tripId} AND x.resolved_at IS NULL)`,
     );
     if (!readiness.length) throw new WorkflowError('Loading or pre-trip inspection is incomplete');
     const at = new Date();
