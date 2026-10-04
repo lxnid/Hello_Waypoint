@@ -106,12 +106,41 @@ function CategoryBadge({ value }: { value?: string }) {
   );
 }
 
+const LOAD_STEPS = ['To-do', 'Started', 'Finished'] as const;
+
+function LoadStatusSlider({ status }: { status: string | null | undefined }) {
+  const active = status === 'COMPLETED' ? 2 : status === 'LOADING' ? 1 : 0;
+  return (
+    <div
+      role="img"
+      aria-label={`Loading status: ${LOAD_STEPS[active]}`}
+      className="relative grid w-full max-w-[17rem] grid-cols-3 rounded-full border border-border bg-surface p-0.5 text-[11px] font-medium"
+    >
+      <span
+        aria-hidden="true"
+        className="absolute inset-y-0.5 left-0.5 w-[calc((100%-4px)/3)] rounded-full bg-primary transition-transform duration-200"
+        style={{ transform: `translateX(${active * 100}%)` }}
+      />
+      {LOAD_STEPS.map((step, index) => (
+        <span
+          key={step}
+          className={`relative z-10 py-1 text-center transition-colors ${
+            index === active ? 'text-white' : 'text-muted'
+          }`}
+        >
+          {step}
+        </span>
+      ))}
+    </div>
+  );
+}
+
 export function LoaderWorkspace({ user }: { user: User }) {
   const queryClient = useQueryClient();
   const [selectedTripId, setSelectedTripId] = useState<string | null>(null);
   const [activeStop, setActiveStop] = useState<Stop | null>(null);
   const [search, setSearch] = useState('');
-  const [loadingActive, setLoadingActive] = useState<Record<string, boolean>>({});
+  const [temperatures, setTemperatures] = useState<Record<string, string>>({});
 
   // Query trips for loader
   const tripsQuery = useQuery({
@@ -139,6 +168,18 @@ export function LoaderWorkspace({ user }: { user: User }) {
     },
   });
 
+  // Start loading mutation: marks the load as LOADING for the dispatcher dashboard
+  const startLoadingMutation = useMutation({
+    mutationFn: (tripId: string) =>
+      request<{ tripId: string; status: string }>(`/trips/${tripId}/start-load`, {
+        method: 'POST',
+        body: '{}',
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['loader'] });
+    },
+  });
+
   const trips = tripsQuery.data?.items ?? [];
 
   // View routing inside Loader
@@ -148,6 +189,7 @@ export function LoaderWorkspace({ user }: { user: User }) {
         user={user}
         stop={activeStop}
         tripId={selectedTripId}
+        temperature={temperatures[selectedTripId] ?? ''}
         onBack={() => setActiveStop(null)}
       />
     );
@@ -163,7 +205,13 @@ export function LoaderWorkspace({ user }: { user: User }) {
         onOpenStopChecklist={setActiveStop}
         onBack={() => setSelectedTripId(null)}
         isSigning={signManifestMutation.isPending}
-        signError={signManifestMutation.error?.message ?? ''}
+        signError={signManifestMutation.error?.message ?? startLoadingMutation.error?.message ?? ''}
+        temperature={temperatures[selectedTripId] ?? ''}
+        onTemperatureChange={(value) =>
+          setTemperatures((prev) => ({ ...prev, [selectedTripId]: value }))
+        }
+        isStarting={startLoadingMutation.isPending}
+        onStartLoading={() => startLoadingMutation.mutate(selectedTripId)}
         onSignManifest={() => signManifestMutation.mutate(selectedTripId)}
       />
     );
@@ -244,7 +292,12 @@ export function LoaderWorkspace({ user }: { user: User }) {
           </div>
 
           <div className="divide-y divide-border/60">
-            {trips
+            {[...trips]
+              .sort(
+                (a, b) =>
+                  Number(a.manifest_status === 'COMPLETED') -
+                  Number(b.manifest_status === 'COMPLETED'),
+              )
               .filter((trip) => {
                 if (!search) return true;
                 const q = search.toLowerCase();
@@ -254,7 +307,6 @@ export function LoaderWorkspace({ user }: { user: User }) {
               })
               .map((trip) => {
                 const loadId = `LDS-${trip.id.slice(0, 4).toUpperCase()}`;
-                const isLoadingOn = loadingActive[trip.id] ?? trip.manifest_status === 'LOADING';
                 return (
                   <div
                     key={trip.id}
@@ -290,29 +342,8 @@ export function LoaderWorkspace({ user }: { user: User }) {
 
                     <div className="text-sm text-muted">{trip.stops_count ?? 'Multi'} Orders</div>
 
-                    <div
-                      className="flex items-center justify-end"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setLoadingActive((prev) => ({ ...prev, [trip.id]: !isLoadingOn }));
-                        setSelectedTripId(trip.id);
-                      }}
-                    >
-                      <button
-                        type="button"
-                        role="switch"
-                        aria-checked={isLoadingOn}
-                        aria-label={`Toggle loading state for ${loadId}`}
-                        className={`relative inline-flex h-7 w-12 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus-visible:outline-2 ${
-                          isLoadingOn ? 'bg-primary' : 'bg-disabled'
-                        }`}
-                      >
-                        <span
-                          className={`pointer-events-none inline-block h-6 w-6 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out ${
-                            isLoadingOn ? 'translate-x-5' : 'translate-x-0'
-                          }`}
-                        />
-                      </button>
+                    <div className="flex items-center justify-end">
+                      <LoadStatusSlider status={trip.manifest_status} />
                     </div>
                   </div>
                 );
@@ -334,6 +365,10 @@ function LoadDetailsView({
   isSigning,
   onSignManifest,
   signError,
+  temperature,
+  onTemperatureChange,
+  isStarting,
+  onStartLoading,
 }: {
   user: User;
   tripDetail: TripDetail;
@@ -344,16 +379,22 @@ function LoadDetailsView({
   isSigning: boolean;
   onSignManifest: () => void;
   signError: string;
+  temperature: string;
+  onTemperatureChange: (value: string) => void;
+  isStarting: boolean;
+  onStartLoading: () => void;
 }) {
   const { trip, manifest } = tripDetail;
   const stops = [...tripDetail.stops].reverse();
   const loadId = `LDS-${trip.id.slice(0, 4).toUpperCase()}`;
   const isManifestSigned = manifest?.status === 'COMPLETED';
+  const isLoadStarted = manifest?.status === 'LOADING' || isManifestSigned;
+  const hasChilled = stops.some((stop) => stop.temperature_requirement?.toLowerCase() === 'chilled');
 
   return (
     <div className="mx-auto max-w-4xl space-y-6">
       {/* Top Header */}
-      <div className="flex items-center justify-between gap-4">
+      <div className="sticky top-0 z-20 -mt-1 mb-4 flex items-center justify-between gap-4 bg-surface pb-4 pt-1">
         <button
           type="button"
           onClick={onBack}
@@ -437,6 +478,23 @@ function LoadDetailsView({
         </div>
       </div>
 
+      {hasChilled && (
+        <label className="block rounded-card border border-border bg-white p-6 text-sm">
+          <span className="font-medium">Measured cargo temperature (°C)</span>
+          <span className="mt-1 block text-xs text-muted">
+            Applied to every chilled order in this load.
+          </span>
+          <input
+            type="number"
+            step="0.1"
+            required
+            value={temperature}
+            onChange={(event) => onTemperatureChange(event.target.value)}
+            className="mt-3 min-h-11 w-full rounded-control border border-border bg-white px-4 outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+          />
+        </label>
+      )}
+
       {/* Orders List for Loading */}
       <div className="space-y-3">
         <div
@@ -502,25 +560,27 @@ function LoadDetailsView({
       <div className="space-y-3 pt-4">
         <button
           type="button"
-          onClick={() => {
-            if (stops[0]) onOpenStopChecklist(stops[0]);
-          }}
-          className="flex min-h-14 w-full items-center justify-center gap-2 rounded-control bg-primary text-base font-semibold text-white transition hover:bg-primary/90"
+          disabled={isLoadStarted || isStarting}
+          onClick={onStartLoading}
+          className="flex min-h-14 w-full items-center justify-center gap-2 rounded-control bg-primary text-base font-semibold text-white transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:bg-disabled disabled:text-muted disabled:hover:bg-disabled"
         >
           <PackageCheck size={20} />
-          Start Loading
+          {isLoadStarted ? 'Started Loading' : isStarting ? 'Starting…' : 'Start Loading'}
         </button>
 
         <button
           type="button"
           disabled={
-            isManifestSigned || isSigning || !stops.every((stop) => stop.load?.confirmed_at)
+            isManifestSigned ||
+            isSigning ||
+            !isLoadStarted ||
+            !stops.every((stop) => stop.load?.confirmed_at)
           }
           onClick={onSignManifest}
           className={`flex min-h-14 w-full items-center justify-center gap-2 rounded-control text-base font-semibold transition ${
             isManifestSigned
               ? 'bg-emerald-50 text-emerald-800 border border-emerald-300 cursor-default'
-              : 'border border-border bg-[#e9e9e9] text-primary hover:bg-[#dedede]'
+              : 'bg-primary text-white hover:bg-primary/90 disabled:cursor-not-allowed disabled:border disabled:border-border disabled:bg-[#e9e9e9] disabled:text-muted disabled:hover:bg-[#e9e9e9]'
           }`}
         >
           {isManifestSigned ? (
@@ -540,18 +600,21 @@ function LoadDetailsView({
 function ChecklistReportingView({
   stop,
   onBack,
+  temperature,
 }: {
   user: User;
   stop: Stop;
   tripId: string;
   onBack: () => void;
+  temperature: string;
 }) {
   const queryClient = useQueryClient();
   const [checkedItems, setCheckedItems] = useState<Record<string, boolean>>({});
   const [reportMessage, setReportMessage] = useState('');
   const [reportAction, setReportAction] = useState('Missing items');
   const [reportSaved, setReportSaved] = useState(false);
-  const [temperature, setTemperature] = useState('');
+  const [reportOpen, setReportOpen] = useState(false);
+  const [reportSelected, setReportSelected] = useState<Record<string, boolean>>({});
   const [actual, setActual] = useState<Record<string, { loaded: number; damaged: number }>>({});
   const [aggregateActual, setAggregateActual] = useState<{
     units: string;
@@ -607,11 +670,17 @@ function ChecklistReportingView({
           type: reportAction.includes('Damaged') ? 'DAMAGED' : 'MISSING',
           stage: 'LOADING',
           affectedQuantity: issueQuantity,
-          notes: reportMessage,
+          notes: `${reportMessage}${
+            selectedReportLines.length
+              ? ` [Items: ${selectedReportLines.map((line) => line.sku ?? line.product_name ?? line.name ?? line.id.slice(0, 8)).join(', ')}]`
+              : ''
+          }`,
         }),
       }),
     onSuccess: () => {
       setReportSaved(true);
+      setReportSelected({});
+      setReportMessage('');
       void queryClient.invalidateQueries({ queryKey: ['loader'] });
     },
   });
@@ -619,20 +688,26 @@ function ChecklistReportingView({
   const orderRef = stop.public_reference ?? stop.order_id.slice(0, 8).toUpperCase();
   const lines = orderQuery.data?.lines ?? [];
 
+  const selectedReportLines = lines.filter((line) => reportSelected[line.id]);
+
+  function toggleReportItem(id: string) {
+    setReportSelected((prev) => ({ ...prev, [id]: !prev[id] }));
+  }
+
   function toggleItem(id: string) {
     setCheckedItems((prev) => ({ ...prev, [id]: !prev[id] }));
   }
 
   async function handleSaveReport(e: React.FormEvent) {
     e.preventDefault();
-    if (!reportMessage.trim()) return;
+    if (!reportMessage.trim() || !selectedReportLines.length) return;
     issueMutation.mutate();
   }
 
   return (
-    <div className="mx-auto max-w-4xl space-y-6">
+    <div className="mx-auto max-w-4xl space-y-6 pb-24">
       {/* Header */}
-      <div className="flex flex-wrap items-center justify-between gap-4">
+      <div className="sticky top-0 z-20 -mt-1 mb-4 flex flex-wrap items-center justify-between gap-4 bg-surface pb-4 pt-1">
         <div className="flex items-center gap-3">
           <button
             type="button"
@@ -660,27 +735,46 @@ function ChecklistReportingView({
           return (
             <div
               key={line.id}
-              onClick={() => toggleItem(line.id)}
-              className="flex cursor-pointer items-center justify-between gap-4 rounded-card border border-border bg-white p-5 transition hover:shadow-sm"
+              onClick={() => {
+                if (!reportOpen) toggleItem(line.id);
+              }}
+              className={`flex items-center justify-between gap-4 rounded-card border bg-white p-5 transition ${
+                reportOpen
+                  ? 'border-border'
+                  : 'cursor-pointer border-border hover:shadow-sm'
+              } ${reportOpen && reportSelected[line.id] ? 'border-primary' : ''}`}
               role="checkbox"
               aria-checked={isChecked}
-              tabIndex={0}
+              aria-disabled={reportOpen}
+              tabIndex={reportOpen ? -1 : 0}
               onKeyDown={(e) => {
-                if (e.key === ' ' || e.key === 'Enter') {
+                if (!reportOpen && (e.key === ' ' || e.key === 'Enter')) {
                   e.preventDefault();
                   toggleItem(line.id);
                 }
               }}
             >
               <div className="flex items-center gap-4">
-                <div
-                  className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full border transition-colors ${
-                    isChecked ? 'border-primary bg-primary text-white' : 'border-border bg-surface'
-                  }`}
-                >
-                  {isChecked && <Check size={14} />}
-                </div>
-                <div>
+                {reportOpen && (
+                  <button
+                    type="button"
+                    role="checkbox"
+                    aria-checked={!!reportSelected[line.id]}
+                    aria-label={`Select ${lineItemId} to report`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      toggleReportItem(line.id);
+                    }}
+                    className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full border transition-colors ${
+                      reportSelected[line.id]
+                        ? 'border-primary bg-primary text-white'
+                        : 'border-border bg-surface'
+                    }`}
+                  >
+                    {reportSelected[line.id] && <Check size={14} />}
+                  </button>
+                )}
+                <div className={reportOpen ? 'opacity-40' : ''}>
                   <span className="font-semibold text-primary">{lineItemId}</span>
                   <span className="ml-4 text-sm font-medium text-primary">
                     {line.product_name ?? line.name ?? 'Standard Item'}
@@ -688,12 +782,13 @@ function ChecklistReportingView({
                 </div>
               </div>
 
-              <div className="flex items-center gap-5">
+              <div className={`flex items-center gap-5 ${reportOpen ? 'opacity-40' : ''}`}>
                 <CategoryBadge value={line.temperature_requirement ?? 'Ambient'} />
                 <span className="text-base font-medium text-muted">X {line.quantity}</span>
                 <input
                   type="checkbox"
                   checked={isChecked}
+                  disabled={reportOpen}
                   onChange={() => toggleItem(line.id)}
                   onClick={(e) => e.stopPropagation()}
                   className="h-5 w-5 rounded border-border accent-primary"
@@ -719,17 +814,11 @@ function ChecklistReportingView({
         </p>
       )}
       {orderQuery.data?.order.temperature_requirement === 'chilled' && (
-        <label className="block text-sm">
-          Measured cargo temperature (°C)
-          <input
-            type="number"
-            step="0.1"
-            required
-            value={temperature}
-            onChange={(event) => setTemperature(event.target.value)}
-            className="mt-2 min-h-11 w-full rounded-control border border-border bg-white px-4"
-          />
-        </label>
+        <p className="rounded-card border border-border bg-white p-5 text-sm">
+          {temperature
+            ? `Measured cargo temperature: ${temperature} °C (set on the load page)`
+            : 'Enter the measured cargo temperature on the load page before confirming this order.'}
+        </p>
       )}
       <details className="rounded-card border border-border bg-white p-5">
         <summary className="text-sm font-medium">Record actual quantities and damage</summary>
@@ -839,72 +928,99 @@ function ChecklistReportingView({
         {loadMutation.isSuccess ? 'Cargo Load Verified' : 'Confirm Items Staged on Vehicle'}
       </button>
 
-      {/* Report Section */}
-      <div className="rounded-card border border-border bg-surface p-6">
-        <div className="flex items-center gap-2 font-semibold text-primary">
-          <AlertCircle size={20} className="text-primary" />
-          <span>Report</span>
-        </div>
-
-        <form onSubmit={handleSaveReport} className="mt-4 space-y-4">
-          <div>
-            <label htmlFor="report-message" className="block text-sm font-medium text-primary">
-              Message
-            </label>
-            <textarea
-              id="report-message"
-              rows={4}
-              value={reportMessage}
-              onChange={(e) => setReportMessage(e.target.value)}
-              placeholder="Record any dock discrepancy, package damage or shortage..."
-              className="mt-1 w-full rounded-card border border-border bg-white p-4 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary"
-            />
-          </div>
-
-          <label className="block text-sm">
-            Affected units
-            <input
-              className="mt-2 min-h-11 w-full rounded-control border border-border bg-white px-4"
-              type="number"
-              min="1"
-              step="1"
-              required
-              value={issueQuantity}
-              onChange={(event) => setIssueQuantity(Number(event.target.value))}
-            />
-          </label>
-          <div className="flex flex-wrap items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <label htmlFor="report-action" className="text-sm font-medium text-primary">
-                Action
-              </label>
-              <select
-                id="report-action"
-                value={reportAction}
-                onChange={(e) => setReportAction(e.target.value)}
-                className="min-h-11 rounded-control border border-border bg-white px-4 text-sm font-medium text-primary outline-none focus:border-primary"
-              >
-                <option value="Missing items">Missing items</option>
-                <option value="Damaged packaging">Damaged packaging</option>
-                <option value="Dock shortage">Dock shortage</option>
-              </select>
+      {/* Floating report button + expandable panel */}
+      <div className="fixed bottom-6 right-6 z-30 flex flex-col items-end gap-3">
+        {reportOpen && (
+          <div className="max-h-[70dvh] w-[min(24rem,calc(100vw-3rem))] overflow-y-auto rounded-card border border-border bg-white p-5 shadow-xl">
+            <div className="flex items-center gap-2 font-semibold text-primary">
+              <AlertCircle size={20} />
+              <span>Report</span>
             </div>
-
-            <button
-              type="submit"
-              disabled={issueMutation.isPending || !reportMessage.trim()}
-              className="inline-flex min-h-11 items-center justify-center rounded-control bg-primary px-8 text-sm font-semibold text-white transition hover:bg-primary/90 disabled:opacity-50"
-            >
-              {issueMutation.isPending ? 'Saving…' : 'Save'}
-            </button>
-          </div>
-
-          {reportSaved && (
-            <p className="rounded-control bg-emerald-50 p-3 text-xs font-medium text-emerald-800">
-              Report filed and logged to warehouse dispatcher.
+            <p className="mt-1 text-xs text-muted">
+              Use the circles on the left of each item to choose what to report.
             </p>
-          )}
-        </form>
+            <p className="mt-3 rounded-control bg-surface p-3 text-sm font-medium">
+              {selectedReportLines.length} of {lines.length} items selected
+              {selectedReportLines.length > 0 && (
+                <span className="mt-1 block text-xs font-normal text-muted">
+                  {selectedReportLines
+                    .map((line) => line.sku ?? line.product_name ?? line.name ?? line.id.slice(0, 8))
+                    .join(', ')}
+                </span>
+              )}
+            </p>
+            <form onSubmit={handleSaveReport} className="mt-4 space-y-4 p-1">
+              <div>
+                <label htmlFor="report-message" className="block text-sm font-medium text-primary">
+                  Message
+                </label>
+                <textarea
+                  id="report-message"
+                  rows={4}
+                  value={reportMessage}
+                  onChange={(e) => setReportMessage(e.target.value)}
+                  placeholder="Record any dock discrepancy, package damage or shortage..."
+                  className="mt-1 w-full rounded-card border border-border bg-white p-4 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+                />
+              </div>
+              <label className="block text-sm">
+                Affected units
+                <input
+                  className="mt-2 min-h-11 w-full rounded-control border border-border bg-white px-4 outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+                  type="number"
+                  min="1"
+                  step="1"
+                  required
+                  value={issueQuantity}
+                  onChange={(event) => setIssueQuantity(Number(event.target.value))}
+                />
+              </label>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <select
+                  id="report-action"
+                  aria-label="Action"
+                  value={reportAction}
+                  onChange={(e) => setReportAction(e.target.value)}
+                  className="min-h-11 rounded-control border border-border bg-white px-4 text-sm font-medium text-primary outline-none focus:border-primary"
+                >
+                  <option value="Missing items">Missing items</option>
+                  <option value="Damaged packaging">Damaged packaging</option>
+                  <option value="Dock shortage">Dock shortage</option>
+                </select>
+                <button
+                  type="submit"
+                  disabled={
+                    issueMutation.isPending || !reportMessage.trim() || !selectedReportLines.length
+                  }
+                  className="inline-flex min-h-11 items-center justify-center rounded-control bg-primary px-8 text-sm font-semibold text-white transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {issueMutation.isPending
+                    ? 'Saving…'
+                    : selectedReportLines.length
+                      ? `Report ${selectedReportLines.length} item${selectedReportLines.length > 1 ? 's' : ''}`
+                      : 'Save'}
+                </button>
+              </div>
+              {reportSaved && (
+                <p className="rounded-control bg-emerald-50 p-3 text-xs font-medium text-emerald-800">
+                  Report filed and logged to warehouse dispatcher.
+                </p>
+              )}
+            </form>
+          </div>
+        )}
+        <button
+          type="button"
+          aria-expanded={reportOpen}
+          onClick={() => {
+            setReportOpen((open) => !open);
+            setReportSaved(false);
+          }}
+          className="inline-flex min-h-12 items-center gap-2 rounded-full bg-primary px-6 text-sm font-semibold text-white shadow-lg transition hover:bg-primary/90"
+        >
+          <AlertCircle size={18} />
+          {reportOpen ? 'Close report' : 'Report'}
+        </button>
       </div>
     </div>
   );

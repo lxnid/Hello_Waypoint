@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import type { Overview, User } from '@waypoint/contracts';
 import { Brand } from '../components/Brand';
+import { UniversalSearch, type SearchTarget } from './UniversalSearch';
 const OrdersWorkspace = lazy(() =>
   import('../dispatcher/OrdersWorkspace').then((module) => ({ default: module.OrdersWorkspace })),
 );
@@ -88,6 +89,7 @@ type Props = {
 export function PortalView({ user, logoutError, isLoggingOut, onLogout }: Props) {
   const [collapsed, setCollapsed] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
   const clock = useColomboClock();
   const location = useLocation();
   const navigate = useNavigate();
@@ -116,14 +118,7 @@ export function PortalView({ user, logoutError, isLoggingOut, onLogout }: Props)
           <button
             type="button"
             aria-label="Search"
-            onClick={() => {
-              if (dispatcher) navigate('/dispatcher/orders');
-              window.requestAnimationFrame(() =>
-                document
-                  .querySelector<HTMLInputElement>('input[aria-label="Search orders"]')
-                  ?.focus(),
-              );
-            }}
+            onClick={() => setSearchOpen(true)}
             className="rounded-full p-2 text-muted hover:bg-border/40 hover:text-foreground focus-visible:outline-2"
           >
             <Search size={22} />
@@ -154,6 +149,15 @@ export function PortalView({ user, logoutError, isLoggingOut, onLogout }: Props)
           </div>
         )}
       </header>
+      <UniversalSearch
+        open={searchOpen}
+        onClose={() => setSearchOpen(false)}
+        onSelect={(target: SearchTarget) => {
+          setSearchOpen(false);
+          if (!dispatcher) return;
+          navigate(target.kind === 'order' ? `/dispatcher/orders/${target.id}` : '/dispatcher/planning');
+        }}
+      />
       {logoutError && (
         <p
           role="alert"

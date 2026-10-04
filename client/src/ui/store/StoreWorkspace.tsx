@@ -286,7 +286,10 @@ function StoreOrder({
   const data = detail.data;
   return (
     <div className="space-y-5">
-      <button onClick={back} className="flex min-h-11 items-center gap-2">
+      <button
+        onClick={back}
+        className="sticky top-0 z-20 -mt-1 flex min-h-11 w-full items-center gap-2 bg-surface py-1"
+      >
         <ArrowLeft size={20} />
         Back to orders
       </button>

@@ -748,14 +748,16 @@ export function ClusterPlanner({ detail, context, priorities, reference, fleet }
                           : trip.manifest_status === 'COMPLETED'
                             ? 'Loaded'
                             : trip.manifest_status === 'LOADING'
-                              ? 'Processing'
+                              ? 'Loading'
                               : 'Assigned'}
                     </span>
                     {!editable && (
                       <button
                         className={button}
                         disabled={
-                          mutation.isPending ||
+                          (mutation.isPending &&
+                            (mutation.variables as { path?: string } | undefined)?.path ===
+                              `/trips/${trip.id}/depart`) ||
                           trip.status !== 'PLANNED' ||
                           trip.manifest_status !== 'COMPLETED' ||
                           !trip.inspection_recorded

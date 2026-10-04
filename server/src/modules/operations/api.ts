@@ -31,6 +31,7 @@ import {
   recordArrival,
   recordLoad,
   completeLoading,
+  startLoading,
   confirmReceipt,
 } from './execution.js';
 import { inspectTrip, returnTrip } from './lifecycle.js';
@@ -458,6 +459,16 @@ export const workflowRoutes: FastifyPluginAsync = async (app) => {
     Type.Object({ stopId: Type.String(), confirmed: Type.Boolean() }),
     (a, id, b) => app.db.transaction((tx) => recordLoad(tx, a, id, b)),
     'Records actual loaded quantities and dock damages for a stop',
+  );
+  command(
+    'POST',
+    '/trips/:id/start-load',
+    'LOADER',
+    'Start loading',
+    empty,
+    Type.Object({ tripId: Type.String(), status: Type.String() }),
+    (a, id) => app.db.transaction((tx) => startLoading(tx, a, id)),
+    'Marks the load manifest as in progress so dispatchers can see it is being loaded',
   );
   command(
     'POST',

@@ -119,6 +119,29 @@ export async function recordLoad(
     .values({ actorId, action: 'ORDER_LOADED', entityType: 'stop', entityId: stopId });
   return { stopId, confirmed: true };
 }
+export async function startLoading(tx: Transaction, actorId: string, tripId: string) {
+  const actor = await requireActor(tx, actorId, 'LOADER');
+  const [trip] = await tx.select().from(trips).where(eq(trips.id, tripId)).for('update');
+  const scope = await tx.execute(
+    sql`SELECT 1 FROM plans WHERE id=${trip?.planId ?? null} AND depot_id=${actor.depotId} AND status='RELEASED'`,
+  );
+  if (!trip || trip.status !== 'PLANNED' || !scope.length)
+    throw new WorkflowError('Trip is not available for loading', 403);
+  const [manifest] = await tx
+    .update(loadManifests)
+    .set({ status: 'LOADING', startedAt: new Date() })
+    .where(and(eq(loadManifests.tripId, tripId), eq(loadManifests.status, 'WAITING')))
+    .returning();
+  if (!manifest) {
+    const [existing] = await tx.select().from(loadManifests).where(eq(loadManifests.tripId, tripId));
+    if (existing?.status === 'LOADING') return { tripId, status: existing.status };
+    throw new WorkflowError('Load cannot be started');
+  }
+  await tx
+    .insert(auditEvents)
+    .values({ actorId, action: 'LOAD_STARTED', entityType: 'trip', entityId: tripId });
+  return { tripId, status: manifest.status };
+}
 export async function completeLoading(tx: Transaction, actorId: string, tripId: string) {
   const actor = await requireActor(tx, actorId, 'LOADER');
   const [trip] = await tx.select().from(trips).where(eq(trips.id, tripId)).for('update');
