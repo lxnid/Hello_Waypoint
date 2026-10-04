@@ -148,6 +148,9 @@ export const products = pgTable(
       .notNull()
       .references(() => brands.id),
     name: text('name').notNull(),
+    description: text('description'),
+    imageUrl: text('image_url'),
+    maxOrderQuantity: integer('max_order_quantity'),
     orderingUnit: text('ordering_unit').notNull(),
     temperatureRequirement: temperatureEnum('temperature_requirement').notNull(),
     unitWeightKg: amount('unit_weight_kg').notNull(),
@@ -156,6 +159,10 @@ export const products = pgTable(
     isActive: boolean('is_active').default(true).notNull(),
   },
   (t) => [
+    check(
+      'products_quantity_limit_check',
+      sql`${t.maxOrderQuantity} IS NULL OR ${t.maxOrderQuantity} > 0`,
+    ),
     index('products_catalog_idx')
       .on(t.brandId, t.temperatureRequirement)
       .where(sql`${t.isActive} = true`),
@@ -163,6 +170,24 @@ export const products = pgTable(
       'products_dimensions_check',
       sql`${t.unitWeightKg} > 0 AND ${t.unitVolumeM3} > 0 AND (${t.estimatedUnitValueLkr} IS NULL OR ${t.estimatedUnitValueLkr} >= 0)`,
     ),
+  ],
+);
+export const productInventory = pgTable(
+  'product_inventory',
+  {
+    productId: uuid('product_id')
+      .notNull()
+      .references(() => products.id, { onDelete: 'cascade' }),
+    depotId: depotEnum('depot_id')
+      .notNull()
+      .references(() => depots.id),
+    availableQuantity: integer('available_quantity').default(0).notNull(),
+    createdAt: created(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.productId, t.depotId], name: 'product_inventory_pk' }),
+    index('product_inventory_depot_idx').on(t.depotId, t.productId),
+    check('product_inventory_quantity_check', sql`${t.availableQuantity} >= 0`),
   ],
 );
 export const users = pgTable(

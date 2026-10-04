@@ -62,12 +62,15 @@ export type Stop = {
   sequence: number;
   planned_arrival_at: string;
   public_reference?: string;
+  temperature_requirement?: string;
   outlet_name?: string;
 };
 export type Trip = {
   id: string;
   plan_id: string;
   vehicle_id: string;
+  load_id?: string;
+  driver_name?: string;
   driver_id: string;
   trip_number: number;
   status: string;
@@ -88,6 +91,7 @@ export type Deferral = {
   nextEligibleDate: string;
 };
 export type Issue = {
+  public_reference?: string;
   id: string;
   order_id: string;
   type: string;
@@ -105,6 +109,7 @@ export type StopInfo = {
   sequence: number;
   outlet_name?: string;
   public_reference?: string;
+  temperature_requirement?: string;
   planned_arrival_at: string;
   attempt?: { outcome: string | null } | null;
 };

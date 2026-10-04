@@ -74,3 +74,11 @@ The submitted Designathon PDF and live prototype are the visual and workflow bas
 ## Operational data foundation
 
 The backend exposes role-scoped APIs for orders, assisted planning, manifests, loading, dispatch, delivery, receipts, proof, exception claims, replay, and return/fuel closure. Proof files persist on a private Docker volume. Operational browser screens and durable browser-side offline storage remain to be connected. Run `docker compose --profile demo run --rm seed` to create the synthetic released-plan walkthrough. See [the data model](docs/data-model.md) for lifecycles, constraints, indexes, CSV import/export, and Docker verification.
+
+For clean local QA, `pnpm db:seed` seeds references and accounts without sample orders. Use `SEED_DEMO_ORDERS=true pnpm db:seed` to explicitly include the synthetic workflow and UI orders. Live planning opens after the 16:00 Asia/Colombo intake cutoff; historical simulation contexts use their imported scenario dates.
+
+## Store manager workspace
+
+The store workspace follows the submitted order overview, catalogue, add-item, and deferred-detail screens while reusing the existing navigation, panel, and field styles. Managers can select products by SKU, save and edit drafts, submit orders, inspect released delivery assignments, and confirm receipts or report issues. Store catalogue reads are restricted to the signed-in outlet’s brand, and show quantities for its delivery depot. Dispatchers can browse products grouped by Fresh, Style, or Tech and update available quantities separately for Peliyagoda and Kandy.
+
+Run `pnpm --filter @waypoint/server db:migrate` followed by `pnpm --filter @waypoint/server db:seed:catalog` to install the catalogue and inventory migration and populate 17 mock products with depot balances. The seed preserves product IDs and existing manually adjusted inventory; it creates no operational orders or plans. Product artwork is bundled locally, with no S3 dependency. `max_order_quantity` is the per-order limit. Draft quantities are checked against depot stock and stock is locked, validated, and decremented atomically when submitted. Monthly summaries use Asia/Colombo month boundaries.

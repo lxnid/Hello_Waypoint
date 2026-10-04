@@ -38,7 +38,11 @@ async function rows<T>(name: string): Promise<T[]> {
   return parse(await readFile(path, 'utf8'), { columns: true, skip_empty_lines: true }) as T[];
 }
 
-export async function seed(databaseUrl: string, demoPassword: string): Promise<void> {
+export async function seed(
+  databaseUrl: string,
+  demoPassword: string,
+  options: { includeDemoOrders?: boolean } = { includeDemoOrders: true },
+): Promise<void> {
   if (!demoPassword) throw new Error('DEMO_PASSWORD is required for seeding');
   const { db, sql } = createDatabase(databaseUrl);
   try {
@@ -387,8 +391,10 @@ export async function seed(databaseUrl: string, demoPassword: string): Promise<v
           .values({ ...account, passwordHash })
           .onConflictDoNothing();
     });
-    await seedDemoWorkflow(db);
-    await seedUiDemo(db);
+    if (options.includeDemoOrders) {
+      await seedDemoWorkflow(db);
+      await seedUiDemo(db);
+    }
     console.info(
       `Seed complete: ${outletRows.length} outlets, ${vehicleRows.length} vehicles, four demo accounts`,
     );
@@ -399,5 +405,7 @@ export async function seed(databaseUrl: string, demoPassword: string): Promise<v
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   const config = loadConfig();
-  await seed(config.databaseUrl, config.demoPassword);
+  await seed(config.databaseUrl, config.demoPassword, {
+    includeDemoOrders: process.env.SEED_DEMO_ORDERS === 'true',
+  });
 }

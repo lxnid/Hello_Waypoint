@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useInfiniteQuery } from '@tanstack/react-query';
 import { ArrowLeft, ClipboardList, Search, Truck, X } from 'lucide-react';
 import { request } from '../../api';
+import { formatOrderId, formatLoadId, formatVehicleId } from '../utils/idFormatters';
 
-import type { OrderHit, TripHit, SearchTarget } from '../../types/search';
+import type { OrderHit, TripHit, SearchTarget, VehicleHit } from '../../types/search';
 export type { SearchTarget } from '../../types/search';
 
 function humanize(value?: string | null) {
@@ -15,10 +16,14 @@ function humanize(value?: string | null) {
 
 export function UniversalSearch({
   open,
+  canSearchFleet = false,
+  canSearchOrders = true,
   onClose,
   onSelect,
 }: {
   open: boolean;
+  canSearchFleet?: boolean;
+  canSearchOrders?: boolean;
   onClose: () => void;
   onSelect: (target: SearchTarget) => void;
 }) {
@@ -52,37 +57,49 @@ export function UniversalSearch({
   }, [open, onClose]);
 
   const enabled = open && term.length > 0;
-  const orders = useQuery({
+  const orders = useInfiniteQuery({
     queryKey: ['universal-search', 'orders', term],
+    enabled: enabled && canSearchOrders,
+    retry: false,
+    initialPageParam: '',
+    queryFn: ({ signal, pageParam }) =>
+      request<{ items: OrderHit[]; nextCursor: string | null }>(
+        `/orders?limit=25&q=${encodeURIComponent(term)}${pageParam ? `&cursor=${encodeURIComponent(pageParam)}` : ''}`,
+        { signal },
+      ),
+    getNextPageParam: (page) => page.nextCursor ?? undefined,
+  });
+  const trips = useInfiniteQuery({
+    queryKey: ['universal-search', 'trips', term],
     enabled,
     retry: false,
-    queryFn: ({ signal }) =>
-      request<{ items: OrderHit[] }>(`/orders?limit=25&q=${encodeURIComponent(term)}`, {
-        signal,
-      }),
+    initialPageParam: '',
+    queryFn: ({ signal, pageParam }) =>
+      request<{ items: TripHit[]; nextCursor: string | null }>(
+        `/trips?limit=25&q=${encodeURIComponent(term)}${pageParam ? `&cursor=${encodeURIComponent(pageParam)}` : ''}`,
+        { signal },
+      ),
+    getNextPageParam: (page) => page.nextCursor ?? undefined,
   });
-  const trips = useQuery({
-    queryKey: ['universal-search', 'trips'],
-    enabled,
-    retry: false,
-    staleTime: 30_000,
-    queryFn: ({ signal }) => request<{ items: TripHit[] }>(`/trips?limit=50`, { signal }),
+  const fleet = useQuery({
+    queryKey: ['universal-search', 'fleet'],
+    enabled: enabled && canSearchFleet,
+    queryFn: ({ signal }) => request<VehicleHit[]>('/fleet', { signal }),
   });
-
   if (!open) return null;
 
-  const needle = term.toLowerCase();
-  const orderHits = enabled ? (orders.data?.items ?? []) : [];
-  const tripHits = enabled
-    ? (trips.data?.items ?? []).filter((trip) =>
-        [trip.id, trip.vehicle_id, `LDS-${trip.id.slice(0, 4)}`, `trip ${trip.trip_number}`]
-          .join(' ')
-          .toLowerCase()
-          .includes(needle),
-      )
-    : [];
-  const loading = enabled && (orders.isFetching || trips.isFetching);
-  const total = orderHits.length + tripHits.length;
+  const orderHits =
+    enabled && canSearchOrders ? (orders.data?.pages.flatMap((page) => page.items) ?? []) : [];
+  const tripHits = enabled ? (trips.data?.pages.flatMap((page) => page.items) ?? []) : [];
+  const loading =
+    enabled && (orders.isFetching || trips.isFetching || (canSearchFleet && fleet.isFetching));
+  const vehicleHits =
+    canSearchFleet && enabled
+      ? (fleet.data ?? []).filter((vehicle) =>
+          vehicle.id.toLowerCase().includes(term.toLowerCase()),
+        )
+      : [];
+  const total = orderHits.length + tripHits.length + vehicleHits.length;
 
   const orderRow = (order: OrderHit) => (
     <li key={order.id}>
@@ -93,8 +110,10 @@ export function UniversalSearch({
       >
         <ClipboardList size={18} className="shrink-0 text-muted" />
         <span className="min-w-0 flex-1">
-          <span className="block truncate text-sm font-semibold">{order.public_reference}</span>
-          <span className="block truncate text-xs text-muted">
+          <span className="block break-all text-sm font-semibold">
+            {formatOrderId(order.public_reference, order.id)}
+          </span>
+          <span className="block break-all text-xs text-muted">
             {[order.outlet_name, order.district_name, order.brand_name].filter(Boolean).join(' · ')}
           </span>
         </span>
@@ -111,11 +130,9 @@ export function UniversalSearch({
       >
         <Truck size={18} className="shrink-0 text-muted" />
         <span className="min-w-0 flex-1">
-          <span className="block truncate text-sm font-semibold">
-            LDS-{trip.id.slice(0, 4).toUpperCase()}
-          </span>
-          <span className="block truncate text-xs text-muted">
-            {trip.vehicle_id} · Trip {trip.trip_number}
+          <span className="block break-all text-sm font-semibold">{formatLoadId(trip.id)}</span>
+          <span className="block break-all text-xs text-muted">
+            {formatVehicleId(trip.vehicle_id)} · Trip {trip.trip_number}
             {trip.operating_date ? ` · ${trip.operating_date}` : ''}
           </span>
         </span>
@@ -126,6 +143,25 @@ export function UniversalSearch({
     </li>
   );
 
+  const vehicleRow = (vehicle: VehicleHit) => (
+    <li key={vehicle.id}>
+      <button
+        type="button"
+        onClick={() => onSelect({ kind: 'vehicle', id: vehicle.id })}
+        className="flex w-full items-center gap-3 rounded-control px-3 py-3 text-left hover:bg-surface"
+      >
+        <Truck size={18} className="shrink-0 text-muted" />
+        <span className="min-w-0 flex-1">
+          <span className="block break-all text-sm font-semibold">
+            {formatVehicleId(vehicle.id)}
+          </span>
+          <span className="block text-xs text-muted">
+            {vehicle.depot_id} · {vehicle.type}
+          </span>
+        </span>
+      </button>
+    </li>
+  );
   const section = (title: string, rows: React.ReactNode[], count: number) =>
     count > 0 && (
       <section className="mt-4">
@@ -175,7 +211,7 @@ export function UniversalSearch({
             ref={inputRef}
             value={input}
             onChange={(event) => setInput(event.target.value)}
-            placeholder="Search orders, stores, loads…"
+            placeholder="Search order IDs, load IDs, vehicles…"
             aria-label="Universal search"
             className="min-h-11 flex-1 bg-transparent text-base outline-none"
           />
@@ -190,6 +226,11 @@ export function UniversalSearch({
         </form>
 
         <div className="min-h-0 flex-1 overflow-y-auto p-3">
+          {(orders.error || trips.error || fleet.error) && (
+            <p role="alert" className="p-3 text-sm text-red-800">
+              {(orders.error ?? trips.error ?? fleet.error)?.message}
+            </p>
+          )}
           {!term && <p className="p-6 text-center text-sm text-muted">Start typing to search.</p>}
           {term && loading && total === 0 && (
             <p role="status" className="p-6 text-center text-sm text-muted">
@@ -208,6 +249,20 @@ export function UniversalSearch({
             'Loads',
             (showResults ? tripHits : tripHits.slice(0, 3)).map(tripRow),
             tripHits.length,
+          )}
+          {section('Vehicles', vehicleHits.map(vehicleRow), vehicleHits.length)}
+          {showResults && (orders.hasNextPage || trips.hasNextPage) && (
+            <button
+              type="button"
+              className="mt-4 min-h-11 w-full rounded-control border border-border p-3 text-sm"
+              disabled={orders.isFetchingNextPage || trips.isFetchingNextPage}
+              onClick={() => {
+                if (orders.hasNextPage) void orders.fetchNextPage();
+                if (trips.hasNextPage) void trips.fetchNextPage();
+              }}
+            >
+              Load more results
+            </button>
           )}
         </div>
 

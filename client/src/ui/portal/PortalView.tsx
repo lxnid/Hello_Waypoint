@@ -1,13 +1,17 @@
 import { lazy, Suspense, useEffect, useState } from 'react';
-import { NavLink, useLocation, useNavigate } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
+import { api, request } from '../../api';
+import { useLocation, useNavigate } from 'react-router-dom';
 import {
   Boxes,
   ClipboardList,
   Clock3,
+  History,
   LogOut,
   MapPinned,
-  PanelLeftClose,
-  PanelLeftOpen,
+  Package,
+  PackageCheck,
+  PackageSearch,
   Search,
   Store,
   Truck,
@@ -17,12 +21,18 @@ import {
 import type { Overview, User } from '@waypoint/contracts';
 import { Brand } from '../components/Brand';
 import { UniversalSearch, type SearchTarget } from './UniversalSearch';
+import { WorkspaceSidebar, WorkspaceMobileNav, type NavItem } from '../components/WorkspaceNav';
 const OrdersWorkspace = lazy(() =>
   import('../dispatcher/OrdersWorkspace').then((module) => ({ default: module.OrdersWorkspace })),
 );
 const PlanningWorkspace = lazy(() =>
   import('../dispatcher/PlanningWorkspace').then((module) => ({
     default: module.PlanningWorkspace,
+  })),
+);
+const CatalogWorkspace = lazy(() =>
+  import('../dispatcher/CatalogWorkspace').then((module) => ({
+    default: module.CatalogWorkspace,
   })),
 );
 const RoleWorkspace = lazy(() =>
@@ -33,17 +43,8 @@ const brand = {
   DISPATCHER: 'DISPATCH',
   LOADER: 'LOADER',
   DRIVER: 'DRIVER',
-  STORE_MANAGER: 'STORE MANAGER',
+  STORE_MANAGER: 'STORE',
 };
-const navigation = [
-  { path: 'orders', label: 'Live Orders', icon: ClipboardList, group: 'DISPATCH' },
-  { path: 'deferred', label: 'Deferred Orders', icon: Clock3, group: 'DISPATCH' },
-  { path: 'planning', label: 'Planning', icon: Boxes, group: 'DISPATCH' },
-  { path: 'fleet', label: 'Fleet', icon: Truck, group: 'MANAGEMENT' },
-  { path: 'stores', label: 'Stores', icon: Store, group: 'MANAGEMENT' },
-  { path: 'tracker', label: 'Tracker', icon: MapPinned, group: 'MANAGEMENT' },
-  { path: 'issues', label: 'Issues', icon: TriangleAlert, group: 'MANAGEMENT' },
-];
 
 function useColomboClock() {
   const [now, setNow] = useState(() => new Date());
@@ -95,6 +96,91 @@ export function PortalView({ user, logoutError, isLoggingOut, onLogout }: Props)
   const navigate = useNavigate();
   const tab = location.pathname.split('/')[2] || 'orders';
   const dispatcher = user.role === 'DISPATCHER';
+  const store = user.role === 'STORE_MANAGER';
+  const storeProfile = useQuery({
+    queryKey: ['store', user.id, 'profile'],
+    queryFn: api.catalog.profile,
+    enabled: store,
+  });
+  const deferred = useQuery({
+    queryKey: ['store', user.id, 'deferred-count'],
+    queryFn: () => request<{ summary?: { deferred?: number } }>('/orders?limit=1&deferred=true'),
+    enabled: store,
+    refetchInterval: 30000,
+  });
+  const deferredCount = deferred.data?.summary?.deferred ?? 0;
+
+  const loadsSummary = useQuery({
+    queryKey: ['dispatcher', 'loads-summary'],
+    queryFn: () =>
+      request<{ items: { id: string; status: string; manifest_status?: string | null }[] }>(
+        '/trips?limit=50',
+      ),
+    enabled: dispatcher,
+    refetchInterval: 5000,
+  });
+
+  const hasLoads = (loadsSummary.data?.items?.length ?? 0) > 0 || tab === 'loads';
+  const readyLoadsCount =
+    loadsSummary.data?.items?.filter(
+      (item) => item.manifest_status === 'COMPLETED' && item.status === 'PLANNED',
+    ).length ?? 0;
+  const inProgressLoadsCount =
+    loadsSummary.data?.items?.filter(
+      (item) => item.manifest_status === 'LOADING',
+    ).length ?? 0;
+  const activeLoadsCount =
+    loadsSummary.data?.items?.filter(
+      (item) => item.status === 'PLANNED',
+    ).length ?? 0;
+
+  const loadsBadgeColor: 'emerald' | 'amber' | 'primary' =
+    readyLoadsCount > 0 ? 'emerald' : inProgressLoadsCount > 0 ? 'amber' : 'primary';
+
+  const dispatcherNavigation: NavItem[] = [
+    { path: 'orders', label: 'Live Orders', icon: ClipboardList, group: 'DISPATCH' },
+    { path: 'deferred', label: 'Deferred Orders', icon: Clock3, group: 'DISPATCH' },
+    { path: 'planning', label: 'Planning', icon: Boxes, group: 'DISPATCH' },
+    ...(hasLoads
+      ? [
+          {
+            path: 'loads',
+            label: 'Loads',
+            icon: PackageCheck,
+            group: 'DISPATCH',
+            isSubItem: true,
+            badge:
+              readyLoadsCount > 0
+                ? readyLoadsCount
+                : inProgressLoadsCount > 0
+                  ? '•'
+                  : activeLoadsCount > 0
+                    ? activeLoadsCount
+                    : null,
+            badgeColor: loadsBadgeColor,
+          },
+        ]
+      : []),
+    { path: 'fleet', label: 'Fleet', icon: Truck, group: 'MANAGEMENT' },
+    { path: 'stores', label: 'Stores', icon: Store, group: 'MANAGEMENT' },
+    { path: 'tracker', label: 'Tracker', icon: MapPinned, group: 'MANAGEMENT' },
+    { path: 'issues', label: 'Issues', icon: TriangleAlert, group: 'MANAGEMENT' },
+    { path: 'catalog', label: 'Catalogue', icon: PackageSearch, group: 'MANAGEMENT' },
+  ];
+
+  const storeNavigation: NavItem[] = [
+    { path: 'orders', label: 'Live Orders', icon: ClipboardList, group: 'ORDER MANAGEMENT' },
+    {
+      path: 'deferred',
+      label: 'Deferred Orders',
+      icon: Clock3,
+      group: 'ORDER MANAGEMENT',
+      badge: deferredCount > 0 ? deferredCount : null,
+    },
+    { path: 'history', label: 'Order History', icon: History, group: 'ORDER MANAGEMENT' },
+    { path: 'items', label: 'Items', icon: Package, group: 'CATALOGUE' },
+    { path: 'vehicles', label: 'Vehicles', icon: Truck, group: 'LOGISTICS' },
+  ];
   return (
     <div className="flex h-dvh flex-col overflow-hidden bg-surface px-3 pb-3 sm:px-6 sm:pb-4 lg:px-7 lg:pb-5">
       <a
@@ -109,12 +195,41 @@ export function PortalView({ user, logoutError, isLoggingOut, onLogout }: Props)
           contextClassName="max-sm:text-xs"
           wordClassName="max-sm:text-xl"
         />
-        <p className="hidden items-center gap-5 text-sm lg:flex">
-          <span className="text-muted">Date</span>
-          <time className="font-semibold">{clock.date}</time>
-        </p>
+        {store ? (
+          <div className="hidden items-center gap-4 text-sm md:flex">
+            <span className="font-medium">
+              {storeProfile.data?.name ?? user.outletId} ·{' '}
+              {storeProfile.data?.brand_name ?? 'Waypoint Store'}
+            </span>
+            {storeProfile.data && (
+              <span className="rounded-full bg-[#cdeff0] px-5 py-1">
+                {storeProfile.data.brand_id}
+              </span>
+            )}
+          </div>
+        ) : (
+          <p className="hidden items-center gap-5 text-sm lg:flex">
+            <span className="text-muted">Date</span>
+            <time className="font-semibold">{clock.date}</time>
+          </p>
+        )}
         <div className="flex items-center gap-3">
-          <p className="hidden text-sm text-muted xl:block">{clock.cutoff}</p>
+          <p className="hidden text-sm text-muted xl:block">
+            {store
+              ? clock.cutoff.replace(
+                  'Order cutoff passed · Planning open',
+                  'After 4 PM · Next eligible run',
+                )
+              : clock.cutoff}
+          </p>
+          {store && (
+            <button
+              className="min-h-11 rounded-full bg-primary px-6 text-sm text-white"
+              onClick={() => navigate('/store/create')}
+            >
+              Create Order
+            </button>
+          )}
           <button
             type="button"
             aria-label="Search"
@@ -151,11 +266,28 @@ export function PortalView({ user, logoutError, isLoggingOut, onLogout }: Props)
       </header>
       <UniversalSearch
         open={searchOpen}
+        canSearchFleet={dispatcher}
+        canSearchOrders={dispatcher || user.role === 'STORE_MANAGER'}
         onClose={() => setSearchOpen(false)}
         onSelect={(target: SearchTarget) => {
           setSearchOpen(false);
-          if (!dispatcher) return;
-          navigate(target.kind === 'order' ? `/dispatcher/orders/${target.id}` : '/dispatcher/planning');
+          if (dispatcher) {
+            navigate(
+              target.kind === 'order'
+                ? `/dispatcher/orders/${target.id}`
+                : target.kind === 'vehicle'
+                  ? `/dispatcher/fleet?vehicleId=${encodeURIComponent(target.id)}`
+                  : `/dispatcher/loads?loadId=${encodeURIComponent(target.id)}`,
+            );
+          } else if (target.kind === 'load') {
+            navigate(
+              user.role === 'LOADER'
+                ? `/loader/loads?loadId=${encodeURIComponent(target.id)}`
+                : `/driver/routes?loadId=${encodeURIComponent(target.id)}`,
+            );
+          } else if (target.kind === 'order' && user.role === 'STORE_MANAGER') {
+            navigate(`/store/orders?orderId=${encodeURIComponent(target.id)}`);
+          }
         }}
       />
       {logoutError && (
@@ -167,69 +299,43 @@ export function PortalView({ user, logoutError, isLoggingOut, onLogout }: Props)
         </p>
       )}
       <div className="flex min-h-0 flex-1 items-stretch gap-5 xl:gap-8 overflow-hidden">
-        {dispatcher && (
-          <aside
-            className={`${collapsed ? 'w-16' : 'w-60 xl:w-64 2xl:w-72'} hidden h-full shrink-0 flex-col rounded-card border border-border bg-white p-3 transition-[width] duration-200 md:flex overflow-y-auto`}
-          >
-            <button
-              className={`mb-3 w-fit shrink-0 rounded-control p-2 text-muted hover:bg-surface ${collapsed ? 'mx-auto' : ''}`}
-              aria-label={collapsed ? 'Expand navigation' : 'Collapse navigation'}
-              aria-expanded={!collapsed}
-              onClick={() => setCollapsed(!collapsed)}
-            >
-              {collapsed ? <PanelLeftOpen size={24} /> : <PanelLeftClose size={24} />}
-            </button>
-            <nav aria-label="Dispatcher navigation" className="flex-1 overflow-y-auto">
-              {navigation.map((item, index) => (
-                <div key={item.path}>
-                  {!collapsed && (index === 0 || item.group !== navigation[index - 1]?.group) && (
-                    <p className={`${index > 0 ? 'mt-9' : 'mt-2'} mb-3 px-4 text-xs text-muted`}>
-                      {item.group}
-                    </p>
-                  )}
-                  <NavLink
-                    to={`/dispatcher/${item.path}`}
-                    title={collapsed ? item.label : undefined}
-                    className={({ isActive }) =>
-                      collapsed
-                        ? `my-1.5 flex h-10 w-10 mx-auto items-center justify-center rounded-full transition-colors ${isActive ? 'bg-primary text-white shadow-sm' : 'text-muted hover:bg-surface hover:text-primary'}`
-                        : `my-1 flex min-h-12 items-center gap-3 rounded-control px-3.5 text-sm transition-colors ${isActive ? 'bg-primary text-white font-semibold shadow-sm' : 'text-primary/80 hover:bg-surface hover:text-primary'}`
-                    }
-                  >
-                    <item.icon size={20} className="shrink-0" />
-                    {!collapsed && <span>{item.label}</span>}
-                  </NavLink>
+        {(dispatcher || store) && (
+          <WorkspaceSidebar
+            items={store ? storeNavigation : dispatcherNavigation}
+            basePath={store ? '/store' : '/dispatcher'}
+            collapsed={collapsed}
+            onToggleCollapse={() => setCollapsed(!collapsed)}
+            ariaLabel={store ? 'Store navigation' : 'Dispatcher navigation'}
+            footer={
+              store ? (
+                <div>
+                  <span className="font-semibold text-foreground/80">
+                    {storeProfile.data?.name ?? user.outletId}
+                  </span>
+                  <br />
+                  Store workspace
                 </div>
-              ))}
-            </nav>
-            {!collapsed && (
-              <p className="mt-auto shrink-0 px-4 pt-4 text-xs leading-5 text-muted">
-                {user.authorizedDepots.join(' · ')}
-                <br />
-                Dispatch workspace
-              </p>
-            )}
-          </aside>
+              ) : (
+                <div>
+                  {user.authorizedDepots.join(' · ')}
+                  <br />
+                  Dispatch workspace
+                </div>
+              )
+            }
+          />
         )}
-        <main id="workspace" className="min-w-0 flex-1 h-full overflow-hidden flex flex-col" tabIndex={-1}>
-          {dispatcher && (
-            <nav
-              aria-label="Mobile dispatcher navigation"
-              className="mb-4 flex shrink-0 gap-2 overflow-x-auto rounded-card border border-border bg-white p-2 md:hidden"
-            >
-              {navigation.map((item) => (
-                <NavLink
-                  key={item.path}
-                  to={`/dispatcher/${item.path}`}
-                  className={({ isActive }) =>
-                    `flex shrink-0 items-center gap-2 rounded-control px-3 py-3 text-sm ${isActive ? 'bg-primary text-white' : ''}`
-                  }
-                >
-                  <item.icon size={18} />
-                  {item.label}
-                </NavLink>
-              ))}
-            </nav>
+        <main
+          id="workspace"
+          className="min-w-0 flex-1 h-full overflow-hidden flex flex-col"
+          tabIndex={-1}
+        >
+          {(dispatcher || store) && (
+            <WorkspaceMobileNav
+              items={store ? storeNavigation : dispatcherNavigation}
+              basePath={store ? '/store' : '/dispatcher'}
+              ariaLabel={store ? 'Mobile store navigation' : 'Mobile dispatcher navigation'}
+            />
           )}
           <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
             <Suspense
@@ -245,9 +351,15 @@ export function PortalView({ user, logoutError, isLoggingOut, onLogout }: Props)
               {dispatcher ? (
                 tab === 'orders' || tab === 'deferred' ? (
                   <OrdersWorkspace key={tab} user={user} deferred={tab === 'deferred'} />
+                ) : tab === 'catalog' ? (
+                  <CatalogWorkspace />
                 ) : (
                   <PlanningWorkspace user={user} tab={tab} />
                 )
+              ) : store ? (
+                <div className="flex-1 min-h-0 h-full overflow-hidden flex flex-col">
+                  <RoleWorkspace user={user} />
+                </div>
               ) : (
                 <div className="flex-1 min-h-0 overflow-y-auto p-2">
                   <RoleWorkspace user={user} />

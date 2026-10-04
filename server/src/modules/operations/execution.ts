@@ -68,12 +68,23 @@ export async function recordLoad(
     .from(orderLines)
     .where(eq(orderLines.orderId, context.order_id));
   if (context.format === 'ITEMIZED') {
+    const existingRecordedLines = await tx
+      .select()
+      .from(loadLineRecords)
+      .where(eq(loadLineRecords.stopId, stopId));
+    const linesToValidate =
+      input.lines && input.lines.length > 0
+        ? input.lines
+        : existingRecordedLines.map((l) => ({
+            orderLineId: l.orderLineId,
+            loadedQuantity: l.loadedQuantity,
+            damagedQuantity: l.damagedQuantity,
+          }));
     if (
       input.aggregate ||
-      !input.lines ||
-      input.lines.length !== expectedLines.length ||
-      new Set(input.lines.map((l) => l.orderLineId)).size !== expectedLines.length ||
-      input.lines.some((l) => !expectedLines.some((e) => e.id === l.orderLineId))
+      linesToValidate.length !== expectedLines.length ||
+      new Set(linesToValidate.map((l) => l.orderLineId)).size !== expectedLines.length ||
+      linesToValidate.some((l) => !expectedLines.some((e) => e.id === l.orderLineId))
     )
       throw new WorkflowError('Every assigned order line must be reported once');
   } else if (!input.aggregate || input.lines?.length)
@@ -118,6 +129,80 @@ export async function recordLoad(
     .insert(auditEvents)
     .values({ actorId, action: 'ORDER_LOADED', entityType: 'stop', entityId: stopId });
   return { stopId, confirmed: true };
+}
+export async function verifyLoadLine(
+  tx: Transaction,
+  actorId: string,
+  stopId: string,
+  input: {
+    orderLineId: string;
+    verified: boolean;
+    loadedQuantity?: number;
+    damagedQuantity?: number;
+  },
+) {
+  const context = await scopedStop(tx, stopId, actorId, 'LOADER');
+  const [manifest] = await tx
+    .select()
+    .from(loadManifests)
+    .where(eq(loadManifests.tripId, context.trip_id))
+    .for('update');
+  if (!manifest || manifest.status === 'COMPLETED' || context.status !== 'PLANNED')
+    throw new WorkflowError('Load is already sealed or dispatched');
+
+  const [line] = await tx
+    .select()
+    .from(orderLines)
+    .where(and(eq(orderLines.id, input.orderLineId), eq(orderLines.orderId, context.order_id)));
+  if (!line) throw new WorkflowError('Order line does not belong to this stop', 404);
+
+  await tx
+    .insert(loadRecords)
+    .values({ stopId })
+    .onConflictDoNothing();
+
+  if (input.verified) {
+    const loadedQty = input.loadedQuantity ?? line.quantity;
+    const damagedQty = input.damagedQuantity ?? 0;
+    await tx
+      .insert(loadLineRecords)
+      .values({
+        stopId,
+        orderId: context.order_id,
+        orderLineId: input.orderLineId,
+        loadedQuantity: loadedQty,
+        damagedQuantity: damagedQty,
+      })
+      .onConflictDoUpdate({
+        target: [loadLineRecords.stopId, loadLineRecords.orderLineId],
+        set: { loadedQuantity: loadedQty, damagedQuantity: damagedQty },
+      });
+  } else {
+    await tx
+      .delete(loadLineRecords)
+      .where(
+        and(
+          eq(loadLineRecords.stopId, stopId),
+          eq(loadLineRecords.orderLineId, input.orderLineId),
+        ),
+      );
+  }
+
+  if (manifest.status === 'WAITING') {
+    await tx
+      .update(loadManifests)
+      .set({ status: 'LOADING', startedAt: new Date() })
+      .where(eq(loadManifests.tripId, context.trip_id));
+  }
+
+  await tx.insert(auditEvents).values({
+    actorId,
+    action: input.verified ? 'ITEM_VERIFIED' : 'ITEM_UNVERIFIED',
+    entityType: 'line',
+    entityId: input.orderLineId,
+  });
+
+  return { stopId, orderLineId: input.orderLineId, verified: input.verified };
 }
 export async function startLoading(tx: Transaction, actorId: string, tripId: string) {
   const actor = await requireActor(tx, actorId, 'LOADER');

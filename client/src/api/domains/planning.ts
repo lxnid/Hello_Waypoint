@@ -1,3 +1,4 @@
+import type { PlanningWindow } from '@waypoint/contracts/workflows';
 import type { StageOrders, TripOrderEdit, TripCandidates } from '@waypoint/contracts/workflows';
 import { request, buildQuery } from '../http';
 import type {
@@ -23,6 +24,7 @@ import type {
 } from '../../types/api/planning';
 
 export const planningApi = {
+  window: () => request<PlanningWindow>('/planning/window'),
   stage: (planId: string, body: StageOrders) =>
     request<PlanningUpdatePlanResponse>(`/planning/plans/${encodeURIComponent(planId)}/stage`, {
       method: 'POST',

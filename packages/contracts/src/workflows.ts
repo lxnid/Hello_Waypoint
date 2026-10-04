@@ -8,11 +8,23 @@ const object = <T extends Record<string, TSchema>>(properties: T) =>
   Type.Object(properties, { additionalProperties: false });
 export const IdParamsSchema = object({ id: uuid() });
 export const DepotSchema = Type.Union([Type.Literal('Peliyagoda'), Type.Literal('Kandy')]);
+export type Depot = Static<typeof DepotSchema>;
 export const PageQuerySchema = object({
   limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 100, default: 25 })),
   cursor: Type.Optional(Type.String({ maxLength: 200 })),
   depot: Type.Optional(DepotSchema),
 });
+export const TripQuerySchema = object({
+  ...PageQuerySchema.properties,
+  q: Type.Optional(Type.String({ maxLength: 120 })),
+});
+export const PlanningWindowSchema = object({
+  serverNow: instant(),
+  opensAt: instant(),
+  planningOpen: Type.Boolean(),
+});
+export type TripQuery = Static<typeof TripQuerySchema>;
+export type PlanningWindow = Static<typeof PlanningWindowSchema>;
 export const OrderQuerySchema = object({
   ...PageQuerySchema.properties,
   q: Type.Optional(Type.String({ maxLength: 120 })),
@@ -27,6 +39,7 @@ export const OrderQuerySchema = object({
     ),
   ),
   deferred: Type.Optional(Type.Boolean()),
+  view: Type.Optional(Type.Union([Type.Literal('live'), Type.Literal('history')])),
 });
 export const ContextInputSchema = object({ operatingDate: date() });
 export const PlanInputSchema = object({ contextId: uuid(), depot: DepotSchema });
@@ -80,6 +93,12 @@ export const LoadInputSchema = object({
     object({ units: quantity(), weightKg: DecimalSchema, volumeM3: DecimalSchema }),
   ),
   temperatureC: temperature,
+});
+export const VerifyLineInputSchema = object({
+  orderLineId: uuid(),
+  verified: Type.Boolean(),
+  loadedQuantity: Type.Optional(quantity()),
+  damagedQuantity: Type.Optional(quantity()),
 });
 export const InspectionInputSchema = object({
   startingOdometerKm: DecimalSchema,
@@ -227,6 +246,8 @@ export const DecisionRowSchema = row({
   next_eligible_date: nullable(date()),
 });
 export const TripRowSchema = row({
+  driver_name: Type.Optional(Type.String()),
+  load_id: Type.Optional(uuid()),
   dispatch_ready: Type.Optional(Type.Boolean()),
   dispatch_block_reason: Type.Optional(nullable(Type.String())),
   id: uuid(),
@@ -303,15 +324,53 @@ export const ContextCommandResultSchema = row({
 });
 export const ContextRowSchema = row({ id: uuid(), kind: Type.String(), operating_date: date() });
 export const CatalogRowSchema = row({
+  brand_id: Type.String(),
+  description: Type.Union([Type.String(), Type.Null()]),
+  image_url: Type.Union([Type.String(), Type.Null()]),
+  max_order_quantity: Type.Union([Type.Integer({ minimum: 1 }), Type.Null()]),
+  available_quantity: Type.Integer({ minimum: 0 }),
+  inventory_depot: DepotSchema,
   id: uuid(),
   sku: Type.String(),
   name: Type.String(),
   ordering_unit: Type.String(),
-  temperature_requirement: Type.String(),
+  temperature_requirement: Type.Union([Type.Literal('ambient'), Type.Literal('chilled')]),
   unit_weight_kg: DecimalSchema,
   unit_volume_m3: DecimalSchema,
   estimated_unit_value_lkr: nullable(DecimalSchema),
 });
+export const InventoryUpdateSchema = object({
+  depotId: DepotSchema,
+  availableQuantity: Type.Integer({ minimum: 0, maximum: 10000000 }),
+});
+export const InventoryUpdateResultSchema = row({
+  productId: uuid(),
+  depotId: DepotSchema,
+  availableQuantity: Type.Integer({ minimum: 0 }),
+});
+export const StoreProfileSchema = object({
+  id: Type.String(),
+  name: Type.Union([Type.String(), Type.Null()]),
+  brand_name: Type.String(),
+  brand_id: Type.String(),
+  depot_id: DepotSchema,
+  monthly_summary: object({
+    total: quantity(),
+    chilled: quantity(),
+    fresh: quantity(),
+    fragile: quantity(),
+  }),
+});
+export const StoreVehicleSchema = object({
+  load_id: uuid(),
+  vehicle_id: Type.String(),
+  trip_status: Type.String(),
+  driver_name: Type.String(),
+  vehicle_type: Type.String(),
+  operating_date: date(),
+});
+export type StoreProfile = Static<typeof StoreProfileSchema>;
+export type StoreVehicle = Static<typeof StoreVehicleSchema>;
 export const PageResponse = (item: TSchema) =>
   object({ items: Type.Array(item), nextCursor: nullable(Type.String()) });
 export const OrdersResponseSchema = object({
@@ -416,6 +475,7 @@ export type IssueRow = Static<typeof IssueRowSchema>;
 export type DeliveryInput = Static<typeof DeliveryInputSchema>;
 export type ReceiptInput = Static<typeof ReceiptInputSchema>;
 export type LoadInput = Static<typeof LoadInputSchema>;
+export type VerifyLineInput = Static<typeof VerifyLineInputSchema>;
 export type InspectionInput = Static<typeof InspectionInputSchema>;
 export type ReturnInput = Static<typeof ReturnInputSchema>;
 export type IssueInput = Static<typeof IssueInputSchema>;

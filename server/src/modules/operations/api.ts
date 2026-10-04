@@ -1,13 +1,22 @@
+import { planningWindow } from './planning-window.js';
 import { Type, type Static, type TSchema } from '@sinclair/typebox';
 import type { FastifyPluginAsync, HTTPMethods } from 'fastify';
 import { ErrorSchema, type Role } from '@waypoint/contracts';
 import { CreateOrderSchema } from '@waypoint/contracts/operations';
 import * as C from '@waypoint/contracts/workflows';
 import { sql } from 'drizzle-orm';
-import { createOrderDraft, submitOrder, authorizeDeparture, WorkflowError } from './service.js';
+import {
+  createOrderDraft,
+  submitOrder,
+  authorizeDeparture,
+  updateProductInventory,
+  WorkflowError,
+} from './service.js';
 import { replaceDraft, deleteDraft } from './orders.js';
 import {
   catalog,
+  storeProfile,
+  storeVehicles,
   listOrders,
   listTrips,
   listIssues,
@@ -30,6 +39,7 @@ import {
   completeDelivery,
   recordArrival,
   recordLoad,
+  verifyLoadLine,
   completeLoading,
   startLoading,
   confirmReceipt,
@@ -98,7 +108,12 @@ export const workflowRoutes: FastifyPluginAsync = async (app) => {
           ...(description ? { description } : {}),
           security: [{ cookieAuth: [] }],
           ...(path.includes(':id') ? { params: C.IdParamsSchema } : {}),
-          querystring: path === '/orders' ? C.OrderQuerySchema : C.PageQuerySchema,
+          querystring:
+            path === '/orders'
+              ? C.OrderQuerySchema
+              : path === '/trips'
+                ? C.TripQuerySchema
+                : C.PageQuerySchema,
           response: {
             200: response,
             400: ErrorSchema,
@@ -207,12 +222,36 @@ export const workflowRoutes: FastifyPluginAsync = async (app) => {
     'Returns depot plans associated with the specified planning context',
   );
   read(
+    '/store/vehicles',
+    'Store delivery vehicle assignments',
+    Type.Array(C.StoreVehicleSchema),
+    (a) => storeVehicles(app.db, a),
+    'STORE_MANAGER',
+  );
+  read(
+    '/store/profile',
+    'Store workspace profile',
+    C.StoreProfileSchema,
+    (a) => storeProfile(app.db, a),
+    'STORE_MANAGER',
+  );
+  read(
     '/catalog',
     'List active replenishment catalog',
     Type.Array(C.CatalogRowSchema),
-    (a) => catalog(app.db, a),
-    'STORE_MANAGER',
-    'Active products available for order placement by brand and temperature requirement',
+    (a, _id, query) => catalog(app.db, a, query.depot),
+    undefined,
+    'Store managers receive their outlet brand; dispatchers can filter active products by depot.',
+  );
+  command(
+    'PUT',
+    '/catalog/:id/inventory',
+    'DISPATCHER',
+    'Update available product quantity',
+    C.InventoryUpdateSchema,
+    C.InventoryUpdateResultSchema,
+    (a, id, body) => updateProductInventory(app.db, a, id, body.depotId, body.availableQuantity),
+    'Sets the available whole-unit quantity for one product at one depot.',
   );
   read(
     '/orders',
@@ -279,6 +318,14 @@ export const workflowRoutes: FastifyPluginAsync = async (app) => {
     C.ContextCommandResultSchema,
     (a, _id, b) => createContext(app.db, a, b.operatingDate),
     'Initializes a live date or scenario planning context',
+  );
+  app.get(
+    '/planning/window',
+    {
+      preHandler: [app.requireAuth, app.allowRole('DISPATCHER')],
+      schema: { tags: ['DISPATCHER', 'Planning'], response: { 200: C.PlanningWindowSchema } },
+    },
+    async () => planningWindow(),
   );
   read(
     '/planning/contexts',
@@ -459,6 +506,16 @@ export const workflowRoutes: FastifyPluginAsync = async (app) => {
     Type.Object({ stopId: Type.String(), confirmed: Type.Boolean() }),
     (a, id, b) => app.db.transaction((tx) => recordLoad(tx, a, id, b)),
     'Records actual loaded quantities and dock damages for a stop',
+  );
+  command(
+    'PUT',
+    '/stops/:id/verify-line',
+    'LOADER',
+    'Verify individual order line on loading dock',
+    C.VerifyLineInputSchema,
+    Type.Object({ stopId: Type.String(), orderLineId: Type.String(), verified: Type.Boolean() }),
+    (a, id, b) => app.db.transaction((tx) => verifyLoadLine(tx, a, id, b)),
+    'Records verification of a single item on the loading vehicle in real time',
   );
   command(
     'POST',

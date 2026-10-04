@@ -1,3 +1,4 @@
+import { useSearchParams } from 'react-router-dom';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -21,6 +22,7 @@ import {
   syncDriver,
   type DriverOperation,
 } from '../../offline/driver-store';
+import { formatOrderId, formatLoadId, formatVehicleId, formatItemId } from '../utils/idFormatters';
 
 const panel = 'rounded-card border border-border bg-white p-5';
 const field = 'mt-2 min-h-12 w-full rounded-control border border-border bg-white px-4 text-sm';
@@ -37,10 +39,15 @@ const formatDate = (value: string) =>
   });
 export function DriverWorkspace({ user }: { user: User }) {
   const cache = useQueryClient();
+  const [searchParams] = useSearchParams();
+  const selectedFromSearch = searchParams.get('loadId');
   const [online, setOnline] = useState(navigator.onLine);
+  useEffect(() => {
+    if (selectedFromSearch) setTripId(selectedFromSearch);
+  }, [selectedFromSearch]);
   const connectionState = useRef(navigator.onLine);
   const [queue, setQueue] = useState<DriverOperation[]>([]);
-  const [tripId, setTripId] = useState('');
+  const [tripId, setTripId] = useState(selectedFromSearch ?? '');
   const [stopId, setStopId] = useState('');
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
@@ -179,7 +186,7 @@ export function DriverWorkspace({ user }: { user: User }) {
               <option value="">Choose a trip</option>
               {trips.data?.items.map((trip) => (
                 <option key={trip.id} value={trip.id}>
-                  {trip.operating_date} · {trip.vehicle_id} · Trip {trip.trip_number}
+                  Load {formatLoadId(trip.id)} · {formatVehicleId(trip.vehicle_id)} · Trip {trip.trip_number}
                 </option>
               ))}
             </select>
@@ -193,7 +200,10 @@ export function DriverWorkspace({ user }: { user: User }) {
               <div className={`${panel} flex items-center gap-4`}>
                 <Truck size={28} />
                 <div>
-                  <h2 className="font-semibold">{detail.data.trip.vehicle_id}</h2>
+                  <h2 className="break-all font-semibold">Load {formatLoadId(detail.data.trip.id)}</h2>
+                  <p className="mt-1 text-sm">
+                    Vehicle {formatVehicleId(detail.data.trip.vehicle_id)} · Trip {detail.data.trip.trip_number}
+                  </p>
                   <p className="mt-1 text-sm text-muted">
                     {detail.data.trip.status.replaceAll('_', ' ')} · {detail.data.stops.length}{' '}
                     stops
@@ -221,7 +231,7 @@ export function DriverWorkspace({ user }: { user: User }) {
                 >
                   <Package size={26} />
                   <div className="flex-1">
-                    <strong>{item.public_reference}</strong>
+                    <strong>{formatOrderId(item.public_reference)}</strong>
                     <p className="mt-1 text-sm">{item.outlet_name ?? `Stop ${index + 1}`}</p>
                     <p className="mt-2 text-xs text-muted">
                       Planned arrival {formatDate(item.planned_arrival_at)}
@@ -524,7 +534,10 @@ function DeliveryStop({
         )}
       </div>
       <h2 className="font-semibold">
-        {stop.public_reference} · {stop.temperature_requirement}
+        {formatOrderId(stop.public_reference)} · {stop.temperature_requirement}
+        <span className="mt-1 block break-all text-xs">
+          Load {formatLoadId(trip.id)} · Vehicle {formatVehicleId(trip.vehicle_id)}
+        </span>
       </h2>
       {trip.status !== 'DISPATCHED' && !completed && (
         <p className="rounded-control bg-amber-50 p-4 text-sm">
@@ -579,7 +592,9 @@ function DeliveryStop({
                 />
                 <span className="flex-1">
                   <strong className="text-sm">{line.name}</strong>
-                  <span className="block text-xs text-muted">{line.sku}</span>
+                  <span className="block text-xs text-muted">
+                    {formatItemId(line.sku, undefined, line.id)}
+                  </span>
                 </span>
                 <span>× {line.quantity}</span>
               </label>

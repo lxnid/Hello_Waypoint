@@ -1,10 +1,14 @@
-import { useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
+import { LoadStatus } from '../components/LoadStatus';
+import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowRight, ChevronDown, Plus, Truck } from 'lucide-react';
 import type { User } from '@waypoint/contracts';
 import { api, request } from '../../api';
 import { ClusterPlanner } from './ClusterPlanner';
+import { LoadsReviewView } from './LoadsReviewView';
 import type { Issue, Page, Reference, Store, StopInfo, Trip, Vehicle } from './planning-types';
+import { formatOrderId, formatLoadId, formatVehicleId, formatStoreId, formatIssueId } from '../utils/idFormatters';
 
 const panel = 'rounded-[20px] border border-border bg-white/60 p-5';
 const field =
@@ -27,6 +31,13 @@ export function PlanningWorkspace({ user, tab }: { user: User; tab: string }) {
   const [contextId, setContextId] = useState('');
   const [depot, setDepot] = useState(user.depot ?? user.authorizedDepots[0] ?? 'Peliyagoda');
   const [notice, setNotice] = useState('');
+  const [operatingDate, setOperatingDate] = useState('');
+  const windowQuery = useQuery({
+    queryKey: ['planning-window'],
+    queryFn: () => api.planning.window(),
+    refetchInterval: 5000,
+    enabled: tab === 'planning',
+  });
   const contexts = useQuery({
     queryKey: ['planning-contexts'],
     queryFn: () => api.planning.listContexts(),
@@ -35,8 +46,30 @@ export function PlanningWorkspace({ user, tab }: { user: User; tab: string }) {
     queryKey: ['dispatch-reference'],
     queryFn: () => api.dispatch.reference(),
   });
+  const today = windowQuery.data
+    ? new Date(new Date(windowQuery.data.serverNow).getTime() + 330 * 60_000)
+        .toISOString()
+        .slice(0, 10)
+    : '';
+  const nextOperatingDate = reference.data?.operatingDates.find((date) => date > today) ?? '';
+  const startDay = useMutation({
+    mutationFn: async () => {
+      const context = await api.planning.createContext(operatingDate || nextOperatingDate);
+      await api.planning.createPlan(context.id, depot);
+      return context;
+    },
+    onSuccess: async (context) => {
+      setContextId(context.id);
+      await Promise.all(
+        ['planning-contexts', 'plans', 'plan', 'fleet'].map((key) =>
+          cache.invalidateQueries({ queryKey: [key] }),
+        ),
+      );
+    },
+  });
   const selectedId = contextId || contexts.data?.[0]?.id || '';
   const context = contexts.data?.find((item) => item.id === selectedId);
+  const planningOpen = context?.kind === 'SCENARIO' || windowQuery.data?.planningOpen === true;
   const plans = useQuery({
     queryKey: ['plans', selectedId],
     enabled: !!selectedId,
@@ -46,7 +79,7 @@ export function PlanningWorkspace({ user, tab }: { user: User; tab: string }) {
   const detail = useQuery({
     queryKey: ['plan', planId],
     enabled: !!planId,
-    refetchInterval: tab === 'planning' ? 5000 : false,
+    refetchInterval: tab === 'planning' || tab === 'loads' ? 5000 : false,
     queryFn: () => api.planning.getPlan(planId!),
   });
   const priorities = useQuery({
@@ -112,11 +145,43 @@ export function PlanningWorkspace({ user, tab }: { user: User; tab: string }) {
           <p className="mt-1 text-sm text-muted">
             {tab === 'planning'
               ? 'Cluster orders, assign trips and prepare loads.'
-              : 'Your operation, connected to live records.'}
+              : tab === 'loads'
+                ? 'Review loader progress, manifest signatures, and dispatch ready vehicles.'
+                : 'Your operation, connected to live records.'}
           </p>
         </div>
-        {['planning', 'fleet'].includes(tab) && (
+        {['planning', 'fleet', 'loads'].includes(tab) && (
           <div className="flex flex-wrap items-end gap-3">
+            {tab === 'planning' && (
+              <form
+                className="flex flex-wrap items-end gap-2"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  startDay.mutate();
+                }}
+              >
+                <label className="grid gap-1 text-xs text-muted">
+                  Operating date
+                  <input
+                    type="date"
+                    required
+                    className={field}
+                    value={operatingDate || nextOperatingDate}
+                    onChange={(event) => setOperatingDate(event.target.value)}
+                  />
+                </label>
+                <button
+                  className={button}
+                  disabled={
+                    startDay.isPending ||
+                    windowQuery.data?.planningOpen !== true ||
+                    !(operatingDate || nextOperatingDate)
+                  }
+                >
+                  Start planning day
+                </button>
+              </form>
+            )}
             <label className="grid gap-1 text-xs text-muted">
               Planning date
               <div className="relative min-w-[160px]">
@@ -164,6 +229,19 @@ export function PlanningWorkspace({ user, tab }: { user: User; tab: string }) {
           </div>
         )}
       </div>
+      {tab === 'planning' && !planningOpen && (
+        <p
+          role="status"
+          className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900"
+        >
+          Live planning opens after 4:00 PM Asia/Colombo when order intake closes.
+        </p>
+      )}
+      {(startDay.error || windowQuery.error) && (
+        <p role="alert" className="rounded-xl bg-red-50 p-4 text-sm text-red-800">
+          {(startDay.error ?? windowQuery.error)?.message}
+        </p>
+      )}
       {error && (
         <div
           role="alert"
@@ -192,7 +270,7 @@ export function PlanningWorkspace({ user, tab }: { user: User; tab: string }) {
                   </p>
                   <button
                     className={button}
-                    disabled={busy}
+                    disabled={busy || !planningOpen}
                     onClick={() => run('/planning/plans', { contextId: selectedId, depot })}
                   >
                     <Plus size={18} />
@@ -205,6 +283,7 @@ export function PlanningWorkspace({ user, tab }: { user: User; tab: string }) {
               <ClusterPlanner
                 key={detail.data.plan.id}
                 detail={detail.data}
+                planningOpen={planningOpen}
                 context={context}
                 priorities={priorities.data ?? []}
                 reference={reference.data}
@@ -212,6 +291,20 @@ export function PlanningWorkspace({ user, tab }: { user: User; tab: string }) {
               />
             )}
           </>
+        )}
+        {tab === 'loads' && (
+          <div className="flex-1 min-h-0 overflow-hidden flex flex-col p-1">
+            <LoadsReviewView
+              user={user}
+              depot={depot}
+              context={context}
+              detail={detail.data}
+              reference={reference.data}
+              fleet={(fleet.data ?? []).filter((vehicle) => vehicle.depot_id === depot)}
+              busy={busy}
+              run={run}
+            />
+          </div>
         )}
         {tab === 'fleet' && (
           <div className="flex-1 min-h-0 overflow-y-auto p-2">
@@ -263,6 +356,8 @@ function FleetTable({
   busy: boolean;
   onChange: (id: string, status: string) => void;
 }) {
+  const [searchParams] = useSearchParams();
+  const selectedVehicle = searchParams.get('vehicleId');
   const [type, setType] = useState('');
   const [temp, setTemp] = useState('');
   const [status, setStatus] = useState('');
@@ -271,6 +366,7 @@ function FleetTable({
   const temps = [...new Set(fleet.map((v) => v.temp).filter(Boolean))];
 
   const filtered = fleet.filter((vehicle) => {
+    if (selectedVehicle && vehicle.id !== selectedVehicle) return false;
     if (type && vehicle.type !== type) return false;
     if (temp && vehicle.temp !== temp) return false;
     if (status && (vehicle.status ?? 'available') !== status) return false;
@@ -343,7 +439,7 @@ function FleetTable({
           <section key={vehicle.id} className={panel}>
             <div className="flex items-center gap-3">
               <Truck size={24} />
-              <h2 className="font-medium">{vehicle.id}</h2>
+              <h2 className="font-medium">{formatVehicleId(vehicle.id)}</h2>
               <span
                 className={`ml-auto rounded-full px-3 py-1 text-xs ${vehicle.temp === 'reefer' ? 'bg-chilled' : 'bg-ambient'}`}
               >
@@ -410,9 +506,9 @@ function StoreTable({ reference }: { reference?: Reference | undefined }) {
       <div className="grid gap-3 lg:grid-cols-2">
         {stores.map((store) => (
           <article className={panel} key={store.id}>
-            <h2 className="font-medium">{store.name || store.id}</h2>
+            <h2 className="font-medium">{store.name || formatStoreId(store.id)}</h2>
             <p className="mt-1 text-sm text-muted">
-              {store.id} · {store.brand_name} · {store.district_name}
+              {formatStoreId(store.id)} · {store.brand_name} · {store.district_name}
             </p>
             <dl className="mt-4 grid grid-cols-2 gap-3 text-sm">
               <div>
@@ -449,7 +545,12 @@ function TripTracker({
   busy: boolean;
 }) {
   const [cursor, setCursor] = useState('');
-  const [tripId, setTripId] = useState('');
+  const [searchParams] = useSearchParams();
+  const selectedLoad = searchParams.get('loadId');
+  const [tripId, setTripId] = useState(selectedLoad ?? '');
+  useEffect(() => {
+    if (selectedLoad) setTripId(selectedLoad);
+  }, [selectedLoad]);
   const trips = useQuery({
     queryKey: ['trips', 'dispatcher', cursor],
     queryFn: () =>
@@ -502,7 +603,9 @@ function TripTracker({
               <Truck size={24} />
               <span className="flex-1">
                 <strong className="block font-medium">
-                  {trip.vehicle_id} · Trip {trip.trip_number}
+                  <span className="block break-all">Load {formatLoadId(trip.id)}</span>
+                  {formatVehicleId(trip.vehicle_id)} · Trip {trip.trip_number} · Driver{' '}
+                  {trip.driver_name ?? trip.driver_id}
                 </strong>
                 <span className="text-xs text-muted">
                   {trip.operating_date} · {title(trip.status)} · Load{' '}
@@ -529,17 +632,26 @@ function TripTracker({
         {detail.data && (
           <aside className={panel}>
             <h2 className="text-lg font-medium">
-              {detail.data.trip.vehicle_id} · Trip {detail.data.trip.trip_number}
+              <span className="block break-all text-sm">Load {formatLoadId(detail.data.trip.id)}</span>
+              {formatVehicleId(detail.data.trip.vehicle_id)} · Trip {detail.data.trip.trip_number}
             </h2>
             <p className="my-3 text-sm text-muted">
-              Load {title(detail.data.manifest?.status ?? 'WAITING')} · Inspection{' '}
-              {detail.data.inspection ? 'completed' : 'pending'}
+              <LoadStatus
+                status={detail.data.trip.status}
+                manifestStatus={detail.data.manifest?.status}
+              />{' '}
+              · Inspection {detail.data.inspection ? 'completed' : 'pending'}
             </p>
             <ol className="space-y-3">
               {detail.data.stops.map((stop) => (
                 <li className="rounded-2xl border border-border p-4" key={stop.id}>
                   <p className="text-sm font-medium">
-                    {stop.sequence}. {stop.outlet_name || stop.public_reference || stop.order_id}
+                    <span className="block break-all font-semibold">
+                      {formatOrderId(stop.public_reference, stop.order_id)}
+                    </span>
+                    <span className="mt-1 block text-xs text-muted">
+                      Stop {stop.sequence + 1} · {stop.outlet_name}
+                    </span>
                   </p>
                   <p className="mt-1 text-xs text-muted">
                     Planned arrival{' '}
@@ -643,7 +755,7 @@ function IssueCard({
         </span>
       </div>
       <p className="mt-2 text-sm text-muted">
-        Order {issue.order_id.slice(0, 8)} · {issue.affected_quantity} affected units
+        {formatIssueId(issue.id)} · Order {formatOrderId(issue.public_reference, issue.order_id)} · {issue.affected_quantity} affected units
       </p>
       <p className="mt-3 text-sm">{issue.notes || 'No additional notes'}</p>
       {issue.resolved_at ? (

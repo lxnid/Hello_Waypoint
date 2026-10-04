@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { beforeAll, afterAll, describe, expect, it } from 'vitest';
+import { beforeAll, afterAll, describe, expect, it, vi } from 'vitest';
 import { and, eq, ne } from 'drizzle-orm';
 import type { FastifyInstance, HTTPMethods } from 'fastify';
 import { createDatabase, type Database } from '../src/db/client.js';
@@ -121,6 +121,63 @@ async function scenario(
   return { order, plan, generated, context };
 }
 suite('operational HTTP workflows', () => {
+  it('rejects live context creation, allocation and release before the intake cutoff', () =>
+    isolated(async (tx, app, c) => {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(new Date('2026-10-04T10:29:59.999Z'));
+      try {
+        expect((await call(app, c.dispatcher!, 'GET', '/planning/window')).planningOpen).toBe(
+          false,
+        );
+        const create = await app.inject({
+          method: 'POST',
+          url: '/api/v1/planning/contexts',
+          headers: { cookie: c.dispatcher! },
+          payload: { operatingDate: '2026-03-31' },
+        });
+        expect(create.statusCode).toBe(409);
+        const [context] = await tx
+          .insert(s.planningContexts)
+          .values({ kind: 'LIVE', operatingDate: '2026-03-31' })
+          .returning();
+        const identity = await call(app, c.dispatcher!, 'GET', '/auth/me');
+        const [plan] = await tx
+          .insert(s.plans)
+          .values({ contextId: context!.id, depotId: 'Peliyagoda', createdBy: identity.user.id })
+          .returning();
+        const createPlan = await app.inject({
+          method: 'POST',
+          url: '/api/v1/planning/plans',
+          headers: { cookie: c.dispatcher! },
+          payload: { contextId: context!.id, depot: 'Peliyagoda' },
+        });
+        expect(createPlan.statusCode).toBe(409);
+        for (const action of ['generate', 'stage', 'release']) {
+          const response = await app.inject({
+            method: 'POST',
+            url: `/api/v1/planning/plans/${plan!.id}/${action}`,
+            headers: { cookie: c.dispatcher! },
+            payload:
+              action === 'stage' ? { version: 1, orderIds: [], deferrals: [] } : { version: 1 },
+          });
+          expect(response.statusCode).toBe(409);
+          expect(response.json().message).toContain('4:00 PM');
+        }
+        vi.setSystemTime(new Date('2026-10-04T10:30:00.001Z'));
+        expect((await call(app, c.dispatcher!, 'GET', '/planning/window')).planningOpen).toBe(true);
+        expect(
+          (
+            await call(app, c.dispatcher!, 'POST', '/planning/plans', {
+              contextId: context!.id,
+              depot: 'Peliyagoda',
+            })
+          ).id,
+        ).toBe(plan!.id);
+      } finally {
+        vi.useRealTimers();
+      }
+    }));
+
   it('validates manual additions, rejects invalid writes atomically, and returns removed orders to staging', () =>
     isolated(async (tx, app, c) => {
       const fixture = await scenario(tx, app, c);
@@ -174,6 +231,7 @@ suite('operational HTTP workflows', () => {
       const unchanged = await call(app, c.dispatcher!, 'GET', `/planning/plans/${fixture.plan.id}`);
       expect(unchanged.plan.version).toBe(detail.plan.version);
       expect(unchanged.trips[0].stops).toHaveLength(1);
+      expect(unchanged.trips[0].id).toBe(tripId);
       const added = await call(
         app,
         c.dispatcher!,
@@ -182,6 +240,7 @@ suite('operational HTTP workflows', () => {
         { version: detail.plan.version, tripId, orderId: feasible.id, action: 'ADD' },
       );
       detail = await call(app, c.dispatcher!, 'GET', `/planning/plans/${fixture.plan.id}`);
+      expect(detail.trips[0].id).toBe(tripId);
       expect(detail.trips[0].stops).toHaveLength(2);
       await call(app, c.dispatcher!, 'POST', `/planning/plans/${fixture.plan.id}/trip-orders`, {
         version: added.version,
@@ -456,6 +515,32 @@ suite('operational HTTP workflows', () => {
       const detail = await call(app, c.dispatcher!, 'GET', `/planning/plans/${f.plan.id}`);
       const trip = detail.trips[0],
         stop = trip.stops[0];
+      expect(trip.load_id).toBe(trip.id);
+      for (const role of ['dispatcher', 'loader', 'driver']) {
+        const visible = await call(app, c[role]!, 'GET', `/trips?limit=1&q=${trip.id}`);
+        expect(visible.items).toHaveLength(1);
+        expect(visible.items[0].id).toBe(trip.id);
+        expect(visible.items[0].load_id).toBe(trip.id);
+        expect(visible.items[0].vehicle_id).toBe(trip.vehicle_id);
+        expect(visible.items[0].driver_id).toBe(trip.driver_id);
+        expect(visible.items[0].driver_name).toBeTruthy();
+        const load = await call(app, c[role]!, 'GET', `/trips/${trip.id}`);
+        expect(load.trip.load_id).toBe(trip.id);
+        expect(load.stops[0].order_id).toBe(f.order.id);
+        expect(load.stops[0].public_reference).toBe(f.order.publicReference);
+      }
+      for (const term of [f.order.id, f.order.publicReference, trip.vehicle_id]) {
+        const found = await call(
+          app,
+          c.dispatcher!,
+          'GET',
+          `/trips?limit=100&q=${encodeURIComponent(term)}`,
+        );
+        expect(found.items.some((item: { id: string }) => item.id === trip.id)).toBe(true);
+      }
+      const orderByUuid = await call(app, c.dispatcher!, 'GET', `/orders?q=${f.order.id}`);
+      expect(orderByUuid.items.some((item: { id: string }) => item.id === f.order.id)).toBe(true);
+
       const order = await call(app, c['manager.out001']!, 'GET', `/orders/${f.order.id}`),
         line = order.lines[0];
       await call(app, c.loader!, 'PUT', `/stops/${stop.id}/load`, {

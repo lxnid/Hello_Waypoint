@@ -11,12 +11,14 @@ import {
   RefreshCw,
   Search,
   ShieldAlert,
+  AlertCircle,
 } from 'lucide-react';
 import type { User } from '@waypoint/contracts';
 import { request } from '../../api';
 
 import type { OrdersPage, Detail } from '../../types/dispatcher-orders';
 export type { Order } from '../../types/dispatcher-orders';
+import { formatOrderId, formatStoreId, formatItemId } from '../utils/idFormatters';
 const pillSelectClass =
   'h-11 w-full appearance-none rounded-xl border border-border bg-white/60 pl-4 pr-11 text-sm font-normal text-foreground outline-none transition-colors hover:bg-white focus:border-primary focus:ring-1 focus:ring-primary cursor-pointer';
 export function humanize(value: string) {
@@ -258,10 +260,10 @@ export function OrdersWorkspace({ user, deferred }: { user: User; deferred: bool
                 }
                 className="grid min-h-20 w-full grid-cols-[1fr_auto] items-center gap-3 rounded-card border border-border bg-white/20 px-5 py-4 text-left transition-colors hover:bg-white focus-visible:outline-2 focus-visible:outline-offset-2 lg:grid-cols-[1fr_2fr_1fr_.8fr_1fr]"
               >
-                <span className="text-sm font-semibold">{order.public_reference}</span>
+                <span className="text-sm font-semibold">{formatOrderId(order.public_reference, order.id)}</span>
                 <span className="row-start-2 text-sm font-medium lg:row-auto">
                   {order.outlet_name ??
-                    `${order.district_name ?? ''} · ${order.brand_name ?? ''} · ${order.outlet_id}`}
+                    `${order.district_name ?? ''} · ${order.brand_name ?? ''} · ${formatStoreId(order.outlet_id)}`}
                   {order.days_since_last_served != null && order.days_since_last_served >= 2 && (
                     <span className="mt-1 block text-xs text-amber-800">
                       {order.days_since_last_served} days unserved
@@ -282,13 +284,24 @@ export function OrdersWorkspace({ user, deferred }: { user: User; deferred: bool
                 </span>
                 <span className="text-xs text-muted">{order.order_size ?? '—'} items</span>
                 <span className="text-right text-xs text-muted">
-                  {order.status === 'SUBMITTED'
-                    ? order.deferred
-                      ? 'Deferred'
-                      : order.latest_decision === 'ALLOCATED'
-                        ? 'Assigned'
-                        : 'Unassigned'
-                    : humanize(order.status)}
+                  {order.status === 'SUBMITTED' ? (
+                    order.deferred ? (
+                      <div>
+                        <span className="font-semibold text-amber-800">Deferred</span>
+                        {(order.next_eligible_date || (order.eligible_date > order.requested_date ? order.eligible_date : null)) && (
+                          <span className="mt-0.5 block text-xs font-medium text-foreground">
+                            Next: {order.next_eligible_date || order.eligible_date}
+                          </span>
+                        )}
+                      </div>
+                    ) : order.latest_decision === 'ALLOCATED' ? (
+                      'Assigned'
+                    ) : (
+                      'Unassigned'
+                    )
+                  ) : (
+                    humanize(order.status)
+                  )}
                 </span>
               </button>
             ))}
@@ -406,6 +419,23 @@ function OrderDetails({ user, id, back }: { user: User; id: string; back: () => 
   const outlet = data?.outlet;
   const units = data?.aggregate?.units ?? data?.lines.reduce((sum, line) => sum + line.quantity, 0);
   const meta = (key: string) => (outlet?.[key] == null ? '—' : String(outlet[key]));
+  const deferredDecision = (
+    data?.decisions as {
+      id?: string;
+      decision?: string;
+      rationale?: string;
+      reason_code?: string;
+      next_eligible_date?: string;
+      operating_date?: string;
+    }[]
+  )?.find((d) => d.decision === 'DEFERRED');
+  const isDeferred =
+    data?.order.status === 'SUBMITTED' &&
+    (data.order.deferred || !!deferredDecision || (data.order.eligible_date > data.order.requested_date));
+  const nextProcessingDate =
+    deferredDecision?.next_eligible_date ??
+    data?.order.next_eligible_date ??
+    (data && data.order.eligible_date > data.order.requested_date ? data.order.eligible_date : null);
   return (
     <div>
       <div className="sticky top-0 z-20 -mt-1 mb-4 bg-surface pb-5 pt-1">
@@ -418,7 +448,7 @@ function OrderDetails({ user, id, back }: { user: User; id: string; back: () => 
         </button>
         {data && (
           <header className="flex flex-wrap items-center justify-between gap-3 px-3">
-            <h1 className="text-xl font-semibold">{data.order.public_reference}</h1>
+            <h1 className="text-xl font-semibold">{formatOrderId(data.order.public_reference, data.order.id)}</h1>
             <span className="text-sm text-muted">{humanize(data.order.status)}</span>
           </header>
         )}
@@ -432,6 +462,31 @@ function OrderDetails({ user, id, back }: { user: User; id: string; back: () => 
       {data && (
         <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_300px]">
           <section>
+            {isDeferred && (
+              <section className="mb-5 rounded-[22px] border border-red-200 bg-red-50/50 p-6 text-foreground">
+                <div className="flex items-center justify-between">
+                  <h2 className="font-semibold text-red-600">Deferred Notes</h2>
+                  <AlertCircle size={20} className="text-red-500" />
+                </div>
+                <p className="mt-4 text-sm leading-relaxed">
+                  {deferredDecision?.rationale ??
+                    (deferredDecision?.reason_code
+                      ? String(deferredDecision.reason_code).replaceAll('_', ' ')
+                      : 'This order was deferred for a later operating date.')}
+                </p>
+                {deferredDecision?.reason_code && (
+                  <p className="mt-2 text-xs text-muted">
+                    Reason: {String(deferredDecision.reason_code).replaceAll('_', ' ')}
+                  </p>
+                )}
+                {nextProcessingDate && (
+                  <div className="mt-6 text-right">
+                    <span className="text-xs text-muted">Next processing date</span>
+                    <p className="font-semibold text-foreground">{nextProcessingDate}</p>
+                  </div>
+                )}
+              </section>
+            )}
             <div className="min-h-[65dvh] rounded-card border border-border p-5 sm:p-8">
               <div className="mb-4 hidden grid-cols-[1fr_2fr_1fr_1fr] gap-4 px-5 text-xs text-muted md:grid">
                 <span>Item ID</span>
@@ -446,7 +501,7 @@ function OrderDetails({ user, id, back }: { user: User; id: string; back: () => 
                     className="grid grid-cols-2 items-center gap-4 rounded-card border border-border p-5 md:grid-cols-[1fr_2fr_1fr_1fr]"
                   >
                     <span className="break-all text-xs text-muted">
-                      {line.sku ?? line.product_id?.slice(0, 8) ?? line.id.slice(0, 8)}
+                      {formatItemId(line.sku, line.product_id, line.id)}
                     </span>
                     <span className="text-sm font-medium">
                       {line.product_name ?? line.name ?? 'Order item'}
@@ -484,20 +539,35 @@ function OrderDetails({ user, id, back }: { user: User; id: string; back: () => 
               {data.decisions.length > 0 && (
                 <div className="mt-8">
                   <h2 className="mb-3 text-sm font-semibold">Planning history</h2>
-                  {data.decisions.map((decision, index) => (
-                    <div
-                      key={String(decision.id ?? index)}
-                      className="mb-3 rounded-control bg-white p-4 text-sm"
-                    >
-                      <p>
-                        {String(decision.operating_date)} ·{' '}
-                        {humanize(String(decision.decision ?? decision.status ?? 'Planned'))}
-                      </p>
-                      {decision.rationale != null && (
-                        <p className="mt-1 text-muted">{String(decision.rationale)}</p>
-                      )}
-                    </div>
-                  ))}
+                  {data.decisions.map((decision, index) => {
+                    const dec = decision as {
+                      id?: string;
+                      operating_date?: string;
+                      decision?: string;
+                      status?: string;
+                      rationale?: string;
+                      next_eligible_date?: string;
+                    };
+                    return (
+                      <div
+                        key={String(dec.id ?? index)}
+                        className="mb-3 rounded-control bg-white p-4 text-sm"
+                      >
+                        <p className="font-medium">
+                          {String(dec.operating_date)} ·{' '}
+                          {humanize(String(dec.decision ?? dec.status ?? 'Planned'))}
+                        </p>
+                        {dec.rationale != null && (
+                          <p className="mt-1 text-muted">{String(dec.rationale)}</p>
+                        )}
+                        {dec.decision === 'DEFERRED' && dec.next_eligible_date != null && (
+                          <p className="mt-1.5 text-xs text-amber-800">
+                            Next processing date: <strong>{String(dec.next_eligible_date)}</strong>
+                          </p>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -518,10 +588,11 @@ function OrderDetails({ user, id, back }: { user: User; id: string; back: () => 
                   'Store',
                   outlet?.name
                     ? meta('name')
-                    : `${meta('district_name')} · ${meta('brand_name')} · ${data.order.outlet_id}`,
+                    : `${meta('district_name')} · ${meta('brand_name')} · ${formatStoreId(data.order.outlet_id)}`,
                 ],
                 ['Requested date', data.order.requested_date],
                 ['Eligible date', data.order.eligible_date],
+                ...(nextProcessingDate ? [['Next processing date', nextProcessingDate]] : []),
                 ['Delivery window', `${meta('window_open_time')} – ${meta('window_close_time')}`],
                 [
                   'Estimated weight',

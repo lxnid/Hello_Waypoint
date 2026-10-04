@@ -20,6 +20,8 @@ export type Stop = {
 export type Trip = {
   id: string;
   vehicle_id: string;
+  load_id?: string;
+  driver_name?: string;
   trip_number: number;
   operating_date: string;
   status: string;

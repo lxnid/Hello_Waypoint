@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
+import { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowLeft,
@@ -15,6 +16,7 @@ import type { User } from '@waypoint/contracts';
 import { request } from '../../api';
 
 import type { Trip, Stop, TripDetail, OrderDetail } from '../../types/loader-workspace';
+import { formatOrderId, formatLoadId, formatVehicleId, formatItemId } from '../utils/idFormatters';
 function humanize(val?: string | null) {
   if (!val) return '—';
   return val
@@ -73,7 +75,12 @@ function LoadStatusSlider({ status }: { status: string | null | undefined }) {
 
 export function LoaderWorkspace({ user }: { user: User }) {
   const queryClient = useQueryClient();
-  const [selectedTripId, setSelectedTripId] = useState<string | null>(null);
+  const [searchParams] = useSearchParams();
+  const selectedFromSearch = searchParams.get('loadId');
+  const [selectedTripId, setSelectedTripId] = useState<string | null>(selectedFromSearch);
+  useEffect(() => {
+    if (selectedFromSearch) setSelectedTripId(selectedFromSearch);
+  }, [selectedFromSearch]);
   const [activeStop, setActiveStop] = useState<Stop | null>(null);
   const [search, setSearch] = useState('');
   const [temperatures, setTemperatures] = useState<Record<string, string>>({});
@@ -120,13 +127,17 @@ export function LoaderWorkspace({ user }: { user: User }) {
 
   // View routing inside Loader
   if (activeStop && selectedTripId) {
+    const liveStop = tripDetailQuery.data?.stops.find((s) => s.id === activeStop.id) ?? activeStop;
     return (
       <ChecklistReportingView
         user={user}
-        stop={activeStop}
+        stop={liveStop}
         tripId={selectedTripId}
         temperature={temperatures[selectedTripId] ?? ''}
-        onBack={() => setActiveStop(null)}
+        onBack={() => {
+          void queryClient.invalidateQueries({ queryKey: ['loader'] });
+          setActiveStop(null);
+        }}
       />
     );
   }
@@ -242,7 +253,7 @@ export function LoaderWorkspace({ user }: { user: User }) {
                 );
               })
               .map((trip) => {
-                const loadId = `LDS-${trip.id.slice(0, 4).toUpperCase()}`;
+                const loadId = formatLoadId(trip.id);
                 return (
                   <div
                     key={trip.id}
@@ -255,9 +266,12 @@ export function LoaderWorkspace({ user }: { user: User }) {
                     }}
                   >
                     <div>
-                      <span className="font-semibold tracking-wide text-primary">{loadId}</span>
+                      <span className="break-all font-semibold tracking-wide text-primary">
+                        {loadId}
+                      </span>
                       <span className="mt-0.5 block text-xs text-muted">
-                        {trip.vehicle_id} · Trip {trip.trip_number}
+                        {formatVehicleId(trip.vehicle_id)} · Trip {trip.trip_number}
+                        <span className="block">Driver: {trip.driver_name ?? trip.driver_id}</span>
                       </span>
                     </div>
 
@@ -268,11 +282,19 @@ export function LoaderWorkspace({ user }: { user: User }) {
                       </span>
                     </div>
 
-                    <div className="text-sm text-muted">3:00am – 8:00am</div>
+                    <div className="text-sm text-muted">
+                      {trip.planned_departure_at
+                        ? new Date(trip.planned_departure_at).toLocaleTimeString('en-GB', {
+                            timeZone: 'Asia/Colombo',
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })
+                        : 'Not scheduled'}
+                    </div>
 
                     <div>
                       <CategoryBadge
-                        value={trip.vehicle_id.includes('REEF') ? 'CHILLED' : 'AMBIENT'}
+                        value={(trip.temperature_requirement ?? 'ambient').toUpperCase()}
                       />
                     </div>
 
@@ -322,7 +344,7 @@ function LoadDetailsView({
 }) {
   const { trip, manifest } = tripDetail;
   const stops = [...tripDetail.stops].reverse();
-  const loadId = `LDS-${trip.id.slice(0, 4).toUpperCase()}`;
+  const loadId = formatLoadId(trip.id);
   const isManifestSigned = manifest?.status === 'COMPLETED';
   const isLoadStarted = manifest?.status === 'LOADING' || isManifestSigned;
   const hasChilled = stops.some(
@@ -349,7 +371,7 @@ function LoadDetailsView({
             Switch Load
           </label>
           <div className="flex items-center gap-2 text-xl font-bold tracking-tight text-primary">
-            <span>{loadId}</span>
+            <span className="break-all">{loadId}</span>
             <select
               id="load-select"
               value={trip.id}
@@ -359,7 +381,7 @@ function LoadDetailsView({
             >
               {availableTrips.map((t) => (
                 <option key={t.id} value={t.id}>
-                  LDS-{t.id.slice(0, 4).toUpperCase()} ({t.vehicle_id})
+                  {formatLoadId(t.id)} ({formatVehicleId(t.vehicle_id)})
                 </option>
               ))}
             </select>
@@ -383,7 +405,7 @@ function LoadDetailsView({
                 key={stop.id}
                 className="rounded-full bg-chilled px-2.5 py-0.5 text-xs font-semibold text-[#094751]"
               >
-                {stop.public_reference ?? stop.order_id.slice(0, 8).toUpperCase()}
+                {formatOrderId(stop.public_reference, stop.order_id)}
               </span>
             ))}
           </div>
@@ -412,7 +434,7 @@ function LoadDetailsView({
 
         <div>
           <span className="text-xs text-muted">Vehicle ID</span>
-          <p className="mt-1 text-sm font-bold text-primary">{trip.vehicle_id}</p>
+          <p className="mt-1 text-sm font-bold text-primary">{formatVehicleId(trip.vehicle_id)}</p>
         </div>
       </div>
 
@@ -447,7 +469,7 @@ function LoadDetailsView({
         </div>
 
         {stops.map((stop, index) => {
-          const orderRef = stop.public_reference ?? stop.order_id.slice(0, 8).toUpperCase();
+          const orderRef = formatOrderId(stop.public_reference, stop.order_id);
           const isStopLoaded = !!stop.load?.confirmed_at;
 
           return (
@@ -477,10 +499,15 @@ function LoadDetailsView({
 
               <div className="flex items-center justify-end gap-2 text-right">
                 <span className="text-sm font-medium text-muted">
-                  {stop.aggregate?.units ??
-                    stop.lines?.reduce((sum, line) => sum + line.quantity, 0) ??
-                    '—'}{' '}
-                  items
+                  {isStopLoaded ? (
+                    `${stop.aggregate?.units ?? stop.lines?.reduce((sum, line) => sum + line.quantity, 0) ?? '—'} items`
+                  ) : (stop.load_lines?.filter((l) => (l.loaded_quantity ?? l.loadedQuantity ?? 0) > 0).length ?? 0) > 0 ? (
+                    <span className="font-semibold text-primary">
+                      {stop.load_lines?.filter((l) => (l.loaded_quantity ?? l.loadedQuantity ?? 0) > 0).length} items loaded
+                    </span>
+                  ) : (
+                    `${stop.aggregate?.units ?? stop.lines?.reduce((sum, line) => sum + line.quantity, 0) ?? '—'} items`
+                  )}
                 </span>
                 {isStopLoaded && <CheckCircle2 size={18} className="text-emerald-600" />}
               </div>
@@ -547,13 +574,24 @@ function ChecklistReportingView({
   temperature: string;
 }) {
   const queryClient = useQueryClient();
-  const [checkedItems, setCheckedItems] = useState<Record<string, boolean>>({});
   const [reportMessage, setReportMessage] = useState('');
   const [reportAction, setReportAction] = useState('Missing items');
   const [reportSaved, setReportSaved] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
   const [reportSelected, setReportSelected] = useState<Record<string, boolean>>({});
-  const [actual, setActual] = useState<Record<string, { loaded: number; damaged: number }>>({});
+  const [actual, setActual] = useState<Record<string, { loaded: number; damaged: number }>>(() => {
+    const initial: Record<string, { loaded: number; damaged: number }> = {};
+    for (const record of stop.load_lines ?? []) {
+      const lineId = record.order_line_id ?? record.orderLineId;
+      if (lineId) {
+        initial[lineId] = {
+          loaded: record.loaded_quantity ?? record.loadedQuantity ?? 0,
+          damaged: record.damaged_quantity ?? record.damagedQuantity ?? 0,
+        };
+      }
+    }
+    return initial;
+  });
   const [aggregateActual, setAggregateActual] = useState<{
     units: string;
     weight: string;
@@ -566,6 +604,8 @@ function ChecklistReportingView({
     queryKey: ['order', stop.order_id],
     queryFn: () => request<OrderDetail>(`/orders/${encodeURIComponent(stop.order_id)}`),
   });
+
+  const lines = orderQuery.data?.lines ?? [];
 
   // Load recording mutation
   const loadMutation = useMutation({
@@ -595,6 +635,82 @@ function ChecklistReportingView({
       }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['loader'] });
+      void queryClient.invalidateQueries({ queryKey: ['order', stop.order_id] });
+    },
+  });
+
+  const isConfirmed = Boolean(stop.load?.confirmed_at || loadMutation.isSuccess);
+
+  // Initialize checked items from stop.load_lines
+  const [checkedItems, setCheckedItems] = useState<Record<string, boolean>>(() => {
+    const initial: Record<string, boolean> = {};
+    for (const record of stop.load_lines ?? []) {
+      const lineId = record.order_line_id ?? record.orderLineId;
+      if (lineId && (record.loaded_quantity ?? record.loadedQuantity ?? 0) > 0) {
+        initial[lineId] = true;
+      }
+    }
+    return initial;
+  });
+
+  // Sync checked items if stop.load_lines updates or if stop is confirmed
+  useEffect(() => {
+    if (isConfirmed && lines.length > 0) {
+      const all: Record<string, boolean> = {};
+      for (const line of lines) {
+        all[line.id] = true;
+      }
+      setCheckedItems(all);
+      return;
+    }
+
+    if (stop.load_lines && stop.load_lines.length > 0) {
+      setCheckedItems((prev) => {
+        const next = { ...prev };
+        for (const record of stop.load_lines ?? []) {
+          const lineId = record.order_line_id ?? record.orderLineId;
+          if (lineId && (record.loaded_quantity ?? record.loadedQuantity ?? 0) > 0) {
+            if (next[lineId] === undefined) {
+              next[lineId] = true;
+            }
+          }
+        }
+        return next;
+      });
+    }
+  }, [stop.load_lines, isConfirmed, lines]);
+
+  // Mutation to persist individual line item verification in real time
+  const verifyLineMutation = useMutation({
+    mutationFn: ({
+      orderLineId,
+      verified,
+      loadedQuantity,
+      damagedQuantity,
+    }: {
+      orderLineId: string;
+      verified: boolean;
+      loadedQuantity?: number;
+      damagedQuantity?: number;
+    }) =>
+      request<{ stopId: string; orderLineId: string; verified: boolean }>(
+        `/stops/${stop.id}/verify-line`,
+        {
+          method: 'PUT',
+          body: JSON.stringify({
+            orderLineId,
+            verified,
+            ...(loadedQuantity !== undefined ? { loadedQuantity } : {}),
+            ...(damagedQuantity !== undefined ? { damagedQuantity } : {}),
+          }),
+        },
+      ),
+    onError: (_err, variables) => {
+      // Revert optimistic update
+      setCheckedItems((prev) => ({ ...prev, [variables.orderLineId]: !variables.verified }));
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['loader'] });
     },
   });
 
@@ -610,7 +726,7 @@ function ChecklistReportingView({
           affectedQuantity: issueQuantity,
           notes: `${reportMessage}${
             selectedReportLines.length
-              ? ` [Items: ${selectedReportLines.map((line) => line.sku ?? line.product_name ?? line.name ?? line.id.slice(0, 8)).join(', ')}]`
+              ? ` [Items: ${selectedReportLines.map((line) => line.sku ?? line.product_name ?? line.name ?? formatItemId(line.sku, undefined, line.id)).join(', ')}]`
               : ''
           }`,
         }),
@@ -623,22 +739,35 @@ function ChecklistReportingView({
     },
   });
 
-  const orderRef = stop.public_reference ?? stop.order_id.slice(0, 8).toUpperCase();
-  const lines = orderQuery.data?.lines ?? [];
-
+  const orderRef = formatOrderId(stop.public_reference, stop.order_id);
   const selectedReportLines = lines.filter((line) => reportSelected[line.id]);
 
   function toggleReportItem(id: string) {
+    if (isConfirmed) return;
     setReportSelected((prev) => ({ ...prev, [id]: !prev[id] }));
   }
 
   function toggleItem(id: string) {
-    setCheckedItems((prev) => ({ ...prev, [id]: !prev[id] }));
+    if (isConfirmed) return;
+    const nextVal = !checkedItems[id];
+    setCheckedItems((prev) => ({ ...prev, [id]: nextVal }));
+
+    const line = lines.find((l) => l.id === id);
+    const lineActual = actual[id];
+    const loadedQty = lineActual?.loaded ?? line?.quantity ?? 1;
+    const damagedQty = lineActual?.damaged ?? 0;
+
+    verifyLineMutation.mutate({
+      orderLineId: id,
+      verified: nextVal,
+      loadedQuantity: loadedQty,
+      damagedQuantity: damagedQty,
+    });
   }
 
   async function handleSaveReport(e: React.FormEvent) {
     e.preventDefault();
-    if (!reportMessage.trim() || !selectedReportLines.length) return;
+    if (isConfirmed || !reportMessage.trim() || !selectedReportLines.length) return;
     issueMutation.mutate();
   }
 
@@ -667,31 +796,31 @@ function ChecklistReportingView({
       {/* Checklist items */}
       <div className="space-y-3">
         {lines.map((line) => {
-          const isChecked = !!checkedItems[line.id];
-          const lineItemId = line.sku ?? `ITM-${line.id.slice(0, 4).toUpperCase()}`;
+          const isChecked = isConfirmed || !!checkedItems[line.id];
+          const lineItemId = formatItemId(line.sku, undefined, line.id);
 
           return (
             <div
               key={line.id}
               onClick={() => {
-                if (!reportOpen) toggleItem(line.id);
+                if (!reportOpen && !isConfirmed) toggleItem(line.id);
               }}
               className={`flex items-center justify-between gap-4 rounded-card border bg-white p-5 transition ${
-                reportOpen ? 'border-border' : 'cursor-pointer border-border hover:shadow-sm'
+                reportOpen || isConfirmed ? 'border-border' : 'cursor-pointer border-border hover:shadow-sm'
               } ${reportOpen && reportSelected[line.id] ? 'border-primary' : ''}`}
               role="checkbox"
               aria-checked={isChecked}
-              aria-disabled={reportOpen}
-              tabIndex={reportOpen ? -1 : 0}
+              aria-disabled={reportOpen || isConfirmed}
+              tabIndex={reportOpen || isConfirmed ? -1 : 0}
               onKeyDown={(e) => {
-                if (!reportOpen && (e.key === ' ' || e.key === 'Enter')) {
+                if (!reportOpen && !isConfirmed && (e.key === ' ' || e.key === 'Enter')) {
                   e.preventDefault();
                   toggleItem(line.id);
                 }
               }}
             >
               <div className="flex items-center gap-4">
-                {reportOpen && (
+                {reportOpen && !isConfirmed && (
                   <button
                     type="button"
                     role="checkbox"
@@ -724,7 +853,7 @@ function ChecklistReportingView({
                 <input
                   type="checkbox"
                   checked={isChecked}
-                  disabled={reportOpen}
+                  disabled={reportOpen || isConfirmed}
                   onChange={() => toggleItem(line.id)}
                   onClick={(e) => e.stopPropagation()}
                   className="h-5 w-5 rounded border-border accent-primary"
@@ -737,9 +866,9 @@ function ChecklistReportingView({
       </div>
 
       {orderQuery.isPending && <p role="status">Loading order lines…</p>}
-      {(orderQuery.error || loadMutation.error || issueMutation.error) && (
+      {(orderQuery.error || loadMutation.error || verifyLineMutation.error || issueMutation.error) && (
         <p role="alert" className="rounded-control bg-red-50 p-4 text-red-800">
-          {(orderQuery.error ?? loadMutation.error ?? issueMutation.error)?.message}
+          {(orderQuery.error ?? loadMutation.error ?? verifyLineMutation.error ?? issueMutation.error)?.message}
         </p>
       )}
       {orderQuery.data?.aggregate && (
@@ -768,7 +897,8 @@ function ChecklistReportingView({
                 <label className="text-xs">
                   Loaded
                   <input
-                    className="mt-2 min-h-11 w-full rounded-control border border-border px-3"
+                    disabled={isConfirmed}
+                    className="mt-2 min-h-11 w-full rounded-control border border-border px-3 disabled:bg-surface disabled:text-muted"
                     type="number"
                     min="0"
                     max={line.quantity}
@@ -788,7 +918,8 @@ function ChecklistReportingView({
                 <label className="text-xs">
                   Damaged
                   <input
-                    className="mt-2 min-h-11 w-full rounded-control border border-border px-3"
+                    disabled={isConfirmed}
+                    className="mt-2 min-h-11 w-full rounded-control border border-border px-3 disabled:bg-surface disabled:text-muted"
                     type="number"
                     min="0"
                     max={line.quantity}
@@ -813,7 +944,8 @@ function ChecklistReportingView({
               <label className="block text-xs" key={key}>
                 Actual {key}
                 <input
-                  className="mt-2 min-h-11 w-full rounded-control border border-border px-3"
+                  disabled={isConfirmed}
+                  className="mt-2 min-h-11 w-full rounded-control border border-border px-3 disabled:bg-surface disabled:text-muted"
                   type="number"
                   min="0"
                   step={key === 'units' ? '1' : key === 'weight' ? '0.01' : '0.001'}
@@ -847,6 +979,7 @@ function ChecklistReportingView({
       <button
         type="button"
         disabled={
+          isConfirmed ||
           loadMutation.isPending ||
           lines.some(
             (line) =>
@@ -855,18 +988,33 @@ function ChecklistReportingView({
           ) ||
           !orderQuery.data ||
           (orderQuery.data.order.temperature_requirement === 'chilled' && !temperature) ||
-          (!orderQuery.data.aggregate && !lines.every((line) => checkedItems[line.id]))
+          (!orderQuery.data.aggregate && !lines.every((line) => isConfirmed || checkedItems[line.id]))
         }
         onClick={() => loadMutation.mutate()}
-        className="flex min-h-12 w-full items-center justify-center gap-2 rounded-control bg-primary text-sm font-semibold text-white transition hover:bg-primary/90"
+        className={`flex min-h-12 w-full items-center justify-center gap-2 rounded-control text-sm font-semibold transition ${
+          isConfirmed
+            ? 'border border-emerald-300 bg-emerald-50 text-emerald-800 cursor-default'
+            : 'bg-primary text-white hover:bg-primary/90 disabled:cursor-not-allowed disabled:border disabled:border-border disabled:bg-[#e9e9e9] disabled:text-muted disabled:hover:bg-[#e9e9e9]'
+        }`}
       >
-        <PackageCheck size={18} />
-        {loadMutation.isSuccess ? 'Cargo Load Verified' : 'Confirm Items Staged on Vehicle'}
+        {isConfirmed ? (
+          <>
+            <CheckCircle2 size={18} className="text-emerald-700" />
+            <span>Cargo Load Verified</span>
+          </>
+        ) : loadMutation.isPending ? (
+          <span>Confirming…</span>
+        ) : (
+          <>
+            <PackageCheck size={18} />
+            <span>Confirm Items Staged on Vehicle</span>
+          </>
+        )}
       </button>
 
       {/* Floating report button + expandable panel */}
       <div className="fixed bottom-6 right-6 z-30 flex flex-col items-end gap-3">
-        {reportOpen && (
+        {reportOpen && !isConfirmed && (
           <div className="max-h-[70dvh] w-[min(24rem,calc(100vw-3rem))] overflow-y-auto rounded-card border border-border bg-white p-5 shadow-xl">
             <div className="flex items-center gap-2 font-semibold text-primary">
               <AlertCircle size={20} />
@@ -880,9 +1028,7 @@ function ChecklistReportingView({
               {selectedReportLines.length > 0 && (
                 <span className="mt-1 block text-xs font-normal text-muted">
                   {selectedReportLines
-                    .map(
-                      (line) => line.sku ?? line.product_name ?? line.name ?? line.id.slice(0, 8),
-                    )
+                    .map((line) => line.sku ?? line.product_name ?? line.name ?? formatItemId(line.sku, undefined, line.id))
                     .join(', ')}
                 </span>
               )}
@@ -949,15 +1095,22 @@ function ChecklistReportingView({
         )}
         <button
           type="button"
-          aria-expanded={reportOpen}
+          disabled={isConfirmed}
+          aria-expanded={reportOpen && !isConfirmed}
           onClick={() => {
+            if (isConfirmed) return;
             setReportOpen((open) => !open);
             setReportSaved(false);
           }}
-          className="inline-flex min-h-12 items-center gap-2 rounded-full bg-primary px-6 text-sm font-semibold text-white shadow-lg transition hover:bg-primary/90"
+          className={`inline-flex min-h-12 items-center gap-2 rounded-full px-6 text-sm font-semibold shadow-lg transition ${
+            isConfirmed
+              ? 'cursor-not-allowed border border-border bg-[#e9e9e9] text-muted opacity-60 shadow-none'
+              : 'bg-primary text-white hover:bg-primary/90'
+          }`}
+          title={isConfirmed ? 'Cargo is verified. Reporting is disabled.' : undefined}
         >
           <AlertCircle size={18} />
-          {reportOpen ? 'Close report' : 'Report'}
+          {reportOpen && !isConfirmed ? 'Close report' : 'Report'}
         </button>
       </div>
     </div>

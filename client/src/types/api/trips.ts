@@ -1,5 +1,5 @@
-import type { PageQuery } from '@waypoint/contracts/workflows';
-export type TripsListQuery = PageQuery;
+import type { TripQuery } from '@waypoint/contracts/workflows';
+export type TripsListQuery = TripQuery;
 export type TripsLoadStopResponse = { stopId: string; confirmed: boolean };
 export type TripsSignLoadResponse = { tripId: string; status: string };
 export type TripsInspectResponse = { tripId: string; inspected: boolean };

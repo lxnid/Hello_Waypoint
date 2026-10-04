@@ -1,8 +1,10 @@
-import { and, eq, sql } from 'drizzle-orm';
+import { planningBlockReason } from './planning-window.js';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import type { PlanEdit } from '@waypoint/contracts/workflows';
 import type { Database } from '../../db/client.js';
 import {
   auditEvents,
+  orders,
   planningContexts,
   plans,
   planOrders,
@@ -18,6 +20,8 @@ import { editPlan, requireActor, type Transaction, WorkflowError } from './servi
 export async function createContext(db: Database, actorId: string, date: string) {
   return db.transaction(async (tx) => {
     await requireActor(tx, actorId, 'DISPATCHER');
+    const blocker = planningBlockReason('LIVE');
+    if (blocker) throw new WorkflowError(blocker);
     const operating = await tx.execute(
       sql`SELECT 1 FROM operating_calendar WHERE date=${date}::date AND is_operating`,
     );
@@ -54,6 +58,8 @@ export async function createPlan(
       .from(planningContexts)
       .where(eq(planningContexts.id, contextId));
     if (!context) throw new WorkflowError('Planning context not found', 404);
+    const blocker = planningBlockReason(context.kind);
+    if (blocker) throw new WorkflowError(blocker);
     await tx
       .insert(plans)
       .values({ contextId, depotId: depot, createdBy: actorId })
@@ -97,13 +103,23 @@ async function save(
   }
   const previous = await tx.select().from(planOrders).where(eq(planOrders.planId, planId));
   const previousByOrder = new Map(previous.map((decision) => [decision.orderId, decision]));
+  const previousTrips = await tx.select().from(trips).where(eq(trips.planId, planId));
+  const tripKey = (trip: {
+    vehicleId: string;
+    tripNumber: number;
+    brandId: string;
+    districtId: string;
+  }) => JSON.stringify([trip.vehicleId, trip.tripNumber, trip.brandId, trip.districtId]);
+  const previousTripByKey = new Map(previousTrips.map((trip) => [tripKey(trip), trip]));
   await tx.delete(tripStops).where(eq(tripStops.planId, planId));
   await tx.delete(trips).where(eq(trips.planId, planId));
   await tx.delete(planOrders).where(eq(planOrders.planId, planId));
   for (const assignment of assignments) {
+    const previousTrip = previousTripByKey.get(tripKey(assignment));
     const [trip] = await tx
       .insert(trips)
       .values({
+        ...(previousTrip ? { id: previousTrip.id } : {}),
         planId,
         vehicleId: assignment.vehicleId,
         driverId: assignment.driverId,
@@ -134,7 +150,14 @@ async function save(
         .values({ ...stop, planId, tripId: trip!.id, planOrderId: decision!.id });
     }
   }
-  if (input.deferrals.length)
+  const allocatedOrderIds = assignments.flatMap((a) => a.stops.map((s) => s.orderId));
+  if (allocatedOrderIds.length) {
+    await tx
+      .update(orders)
+      .set({ eligibleDate: inputs.plan.operating_date })
+      .where(inArray(orders.id, allocatedOrderIds));
+  }
+  if (input.deferrals.length) {
     await tx.insert(planOrders).values(
       input.deferrals.map((d) => {
         const old = previousByOrder.get(d.orderId);
@@ -162,6 +185,13 @@ async function save(
         };
       }),
     );
+    for (const d of input.deferrals) {
+      await tx
+        .update(orders)
+        .set({ eligibleDate: d.nextEligibleDate })
+        .where(eq(orders.id, d.orderId));
+    }
+  }
   if (partial) {
     const unresolved = inputs.demand.filter((order) => !decisions.includes(order.id));
     if (unresolved.length)
@@ -297,7 +327,7 @@ export async function generatePlan(
         const vehicle = inputs.fleet.find((v) => v.id === trip.vehicleId);
         if (!vehicle) continue;
 
-        for (let oi = 0; oi < pending.length; ) {
+        for (let oi = 0; oi < pending.length;) {
           const order = pending[oi]!;
           if (order.temperature_requirement === 'chilled' && vehicle.temp !== 'reefer') {
             oi++;
@@ -324,7 +354,9 @@ export async function generatePlan(
               pending.splice(oi, 1);
               inserted = true;
               break;
-            } catch {}
+            } catch {
+              // Try the next candidate position when this insertion is infeasible.
+            }
           }
           if (!inserted) oi++;
         }
@@ -376,7 +408,8 @@ export async function generatePlan(
             const packed: typeof inputs.demand = [];
 
             for (const order of pending) {
-              if (order.temperature_requirement === 'chilled' && vehicle.temp !== 'reefer') continue;
+              if (order.temperature_requirement === 'chilled' && vehicle.temp !== 'reefer')
+                continue;
               if (order.parking_constraint === 'van_only' && vehicle.type !== 'van') continue;
 
               let bestPos: number | null = null;
@@ -394,8 +427,9 @@ export async function generatePlan(
                   schedule(inputs, testTrial);
                   bestPos = p;
                   break;
-                } catch (err: any) {
-                  if (tripOrderIds.length === 0) bestFailureReason = err.message;
+                } catch (err) {
+                  if (tripOrderIds.length === 0 && err instanceof Error)
+                    bestFailureReason = err.message;
                 }
               }
 
@@ -435,7 +469,7 @@ export async function generatePlan(
                     ...assignments,
                     { vehicleId: v.id, driverId: d.id, orderIds: [order.id] },
                   ]);
-                } catch (err: any) {
+                } catch (err) {
                   if (err instanceof WorkflowError) {
                     orderFailure = err.message;
                   }

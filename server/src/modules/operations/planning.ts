@@ -1,3 +1,4 @@
+import { planningBlockReason } from './planning-window.js';
 import { eq, sql } from 'drizzle-orm';
 import type { Database } from '../../db/client.js';
 import { auditEvents, loadManifests, planOrders, plans } from '../../db/schema.js';
@@ -27,6 +28,8 @@ export async function releasePlan(
       sql`SELECT id,kind,operating_date::text,batch_id,scenario FROM planning_contexts WHERE id=${plan.contextId}`,
     );
     if (!context) throw new WorkflowError('Missing planning context');
+    const blocker = planningBlockReason(context.kind);
+    if (blocker) throw new WorkflowError(blocker);
     const calendar = await tx.execute(
       sql`SELECT 1 FROM operating_calendar WHERE date=${context.operating_date}::date AND is_operating`,
     );

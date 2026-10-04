@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { and, eq, sql } from 'drizzle-orm';
-import { beforeAll, afterAll, describe, expect, it } from 'vitest';
+import { beforeAll, afterAll, describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
 import { createDatabase } from '../src/db/client.js';
 import { seed } from '../src/db/seed.js';
 import * as s from '../src/db/schema.js';
@@ -13,6 +13,11 @@ import type { Transaction } from '../src/modules/operations/service.js';
 import { buildApp } from '../src/app.js';
 import { loadConfig } from '../src/config/env.js';
 
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(new Date('2026-10-04T10:31:00Z'));
+});
+afterEach(() => vi.useRealTimers());
 const url = process.env.TEST_DATABASE_URL;
 if (url && !new URL(url).pathname.endsWith('_test'))
   throw new Error('Priority tests require a dedicated *_test database');

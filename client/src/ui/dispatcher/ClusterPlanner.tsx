@@ -1,3 +1,4 @@
+import { LoadStatus } from '../components/LoadStatus';
 import { useMemo, useRef, useState, useEffect } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -11,6 +12,7 @@ import {
 } from 'lucide-react';
 import { api, request } from '../../api';
 import type { Context, Deferral, PlanDetail, Priority, Reference, Vehicle } from './planning-types';
+import { formatOrderId, formatLoadId, formatVehicleId } from '../utils/idFormatters';
 
 const panel = 'rounded-[20px] border border-border bg-white/30';
 const button =
@@ -45,8 +47,16 @@ type Props = {
   priorities: Priority[];
   reference: Reference;
   fleet: Vehicle[];
+  planningOpen?: boolean;
 };
-export function ClusterPlanner({ detail, context, priorities, reference, fleet }: Props) {
+export function ClusterPlanner({
+  detail,
+  context,
+  priorities,
+  reference,
+  fleet,
+  planningOpen = true,
+}: Props) {
   const cache = useQueryClient();
   const [cluster, setCluster] = useState('');
   const [brand, setBrand] = useState('');
@@ -84,6 +94,9 @@ export function ClusterPlanner({ detail, context, priorities, reference, fleet }
   const trips = detail.trips.filter((trip) =>
     trip.stops.some((stop) => currentIds.has(stop.order_id)),
   );
+  const hasReadyLoads = trips.some((trip) => trip.stops.length > 0);
+  const hasAnyPlanLoads = detail.trips.some((trip) => trip.stops.length > 0);
+  const showLoadsView = loadsView && hasReadyLoads;
   const allResolved =
     priorities.length > 0 && priorities.every((order) => state(order) !== 'UNASSIGNED');
   const mutation = useMutation({
@@ -122,20 +135,25 @@ export function ClusterPlanner({ detail, context, priorities, reference, fleet }
     setSelected([]);
     setTemperature('');
     setStatus('');
-    setLoadsView(!editable);
+    setLoadsView(false);
     const orders = groups.find(([id]) => id === key)?.[1] ?? [];
     const ids = new Set(orders.map((o) => o.orderId));
     setAllocationOpen(
       detail.trips.some((trip) => trip.stops.some((stop) => ids.has(stop.order_id))),
     );
   }
-  const filtered = current.filter(
-    (order) =>
-      (!temperature || order.temperatureRequirement === temperature) &&
-      (!status || state(order) === status),
+  const filtered = current.filter((order) => {
+    if (temperature && order.temperatureRequirement !== temperature) return false;
+    if (!status || status === 'UNASSIGNED') return state(order) === 'UNASSIGNED';
+    if (status === 'ALL') return true;
+    return state(order) === status;
+  });
+  const selectable = filtered.filter(
+    (order) => state(order) === 'UNASSIGNED' || (status === 'DEFERRED' && state(order) === 'DEFERRED'),
   );
-  const selectable = filtered.filter((order) => state(order) !== 'ALLOCATED');
   const selectedOrders = priorities.filter((order) => selected.includes(order.orderId));
+  const canDefer =
+    selectedOrders.length > 0 && selectedOrders.some((order) => state(order) !== 'DEFERRED');
   const protectedDeferrals = detail.decisions.filter(
     (decision) =>
       decision.decision === 'DEFERRED' &&
@@ -143,6 +161,12 @@ export function ClusterPlanner({ detail, context, priorities, reference, fleet }
         priorities.find((order) => order.orderId === decision.order_id)?.requiresOverride) &&
       !decision.override_acknowledged,
   );
+  if (editable && !planningOpen)
+    return (
+      <p className="rounded-2xl border border-border bg-white p-5 text-sm text-muted">
+        Planning is closed. Review incoming orders until the 4:00 PM cutoff.
+      </p>
+    );
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden space-y-4">
       {mutation.error && (
@@ -344,7 +368,7 @@ export function ClusterPlanner({ detail, context, priorities, reference, fleet }
                     max={priorities.length || 1}
                     value={priorities.filter((o) => state(o) !== 'UNASSIGNED').length}
                   />
-                  {allResolved && (
+                  {allResolved && hasAnyPlanLoads && (
                     <button
                       className={`${button} mt-6 w-full`}
                       onClick={() => {
@@ -408,10 +432,10 @@ export function ClusterPlanner({ detail, context, priorities, reference, fleet }
                     setSelected([]);
                   }}
                 >
-                  <option value="">Status</option>
-                  <option value="UNASSIGNED">Unstaged</option>
-                  <option value="ALLOCATED">Allocated</option>
+                  <option value="">Pending Staging</option>
                   <option value="DEFERRED">Deferred</option>
+                  <option value="ALLOCATED">Allocated</option>
+                  <option value="ALL">All orders</option>
                 </select>
                 <ChevronDown
                   size={16}
@@ -420,7 +444,7 @@ export function ClusterPlanner({ detail, context, priorities, reference, fleet }
               </div>
             </div>
           </div>
-          {!loadsView ? (
+          {!showLoadsView ? (
             <div
               className={`flex-1 min-h-0 grid items-stretch gap-5 overflow-hidden ${allocationOpen ? 'xl:grid-cols-2' : 'grid-cols-[minmax(0,1fr)_56px]'}`}
             >
@@ -519,20 +543,31 @@ export function ClusterPlanner({ detail, context, priorities, reference, fleet }
                                 {decisions.get(order.orderId)?.rationale}
                               </p>
                             )}
-                          {decisions.get(order.orderId)?.rationale &&
-                            state(order) === 'DEFERRED' && (
-                              <p className="mt-2 text-xs text-muted">
-                                Deferred: {decisions.get(order.orderId)?.rationale}
-                              </p>
-                            )}
+                          {state(order) === 'DEFERRED' && (
+                            <div className="mt-2.5 rounded-xl border border-amber-200 bg-amber-50/60 p-2.5 text-xs text-amber-950">
+                              {decisions.get(order.orderId)?.rationale && (
+                                <p className="font-medium">
+                                  Deferred: {decisions.get(order.orderId)?.rationale}
+                                </p>
+                              )}
+                              {decisions.get(order.orderId)?.next_eligible_date && (
+                                <p className="mt-1 text-muted">
+                                  Next processing date:{' '}
+                                  <strong className="text-foreground">
+                                    {decisions.get(order.orderId)?.next_eligible_date}
+                                  </strong>
+                                </p>
+                              )}
+                            </div>
+                          )}
                         </div>
                       </button>
                     );
                   })}
                   {!filtered.length && (
                     <p className="text-sm text-muted">
-                      {!status && !temperature
-                        ? 'All orders are allocated. Remove an order from a trip to return it to staging.'
+                      {!status || status === 'UNASSIGNED'
+                        ? 'All orders in this cluster have been resolved (staged or deferred).'
                         : 'No orders match these filters.'}
                     </p>
                   )}
@@ -541,7 +576,7 @@ export function ClusterPlanner({ detail, context, priorities, reference, fleet }
                   <footer className="shrink-0 flex justify-end gap-3 border-t border-border p-5">
                     <button
                       className={secondary}
-                      disabled={!selected.length || mutation.isPending}
+                      disabled={!canDefer || mutation.isPending}
                       onClick={() => {
                         setMessage('');
                         setDeferOpen(true);
@@ -562,9 +597,10 @@ export function ClusterPlanner({ detail, context, priorities, reference, fleet }
               {!allocationOpen ? (
                 <button
                   aria-label="Expand load assigning"
-                  disabled={trips.length === 0 && pending.length > 0}
+                  disabled={!hasReadyLoads}
+                  title={!hasReadyLoads ? 'Stage orders first to prepare loads' : 'Expand load assigning'}
                   onClick={() => setAllocationOpen(true)}
-                  className={`${panel} flex h-full items-start justify-center p-4 disabled:cursor-default`}
+                  className={`${panel} flex h-full items-start justify-center p-4 disabled:cursor-not-allowed disabled:opacity-40`}
                 >
                   <span className="flex items-center gap-4 text-sm [writing-mode:vertical-rl]">
                     <ArrowLeft size={18} />
@@ -601,7 +637,8 @@ export function ClusterPlanner({ detail, context, priorities, reference, fleet }
                         >
                           <header className="flex flex-wrap items-center gap-3 border-b border-border p-4">
                             <Truck size={24} />
-                            <h3 className="font-medium">{trip.vehicle_id}</h3>
+                            <h3 className="font-medium">{formatVehicleId(trip.vehicle_id)}</h3>
+                            <p className="mt-1 break-all text-xs text-muted">Load {formatLoadId(trip.id)}</p>
                             <span
                               className={`rounded-full px-3 py-1 text-xs ${vehicle?.temp === 'reefer' ? 'bg-chilled' : 'bg-ambient'}`}
                             >
@@ -710,7 +747,8 @@ export function ClusterPlanner({ detail, context, priorities, reference, fleet }
                     </span>
                     <button
                       className={button}
-                      disabled={mutation.isPending || trips.length === 0}
+                      disabled={mutation.isPending || !hasReadyLoads}
+                      title={!hasReadyLoads ? 'Allocate orders to at least one load first' : undefined}
                       onClick={() => setLoadsView(true)}
                     >
                       Continue <ArrowRight size={16} />
@@ -736,15 +774,20 @@ export function ClusterPlanner({ detail, context, priorities, reference, fleet }
                 </button>
               </div>
               <div className="flex-1 min-h-0 space-y-3 overflow-y-auto p-2">
-                {trips.map((trip) => (
+                {trips
+                  .filter((trip) => trip.stops.length > 0)
+                  .map((trip) => (
                   <div
                     key={trip.id}
                     className="flex flex-wrap items-center justify-between gap-4 rounded-[20px] border border-border p-5"
                   >
-                    <strong className="text-sm font-medium">
-                      LDS-{trip.id.slice(0, 8).toUpperCase()}
+                    <strong className="break-all text-sm font-medium">
+                      Load ID: {formatLoadId(trip.id)}
                       <span className="mt-1 block text-xs font-normal text-muted">
-                        {trip.vehicle_id} · Trip {trip.trip_number}
+                        Vehicle: {formatVehicleId(trip.vehicle_id)} · Trip {trip.trip_number}
+                        <span className="mt-1 block">
+                          Driver: {trip.driver_name ?? trip.driver_id}
+                        </span>
                       </span>
                     </strong>
                     <span className="text-sm">
@@ -753,15 +796,11 @@ export function ClusterPlanner({ detail, context, priorities, reference, fleet }
                     </span>
                     <span className="text-sm text-muted">{trip.stops.length} Orders</span>
                     <span className="text-sm text-muted">
-                      {editable
-                        ? 'Ready for release'
-                        : trip.status !== 'PLANNED'
-                          ? label(trip.status)
-                          : trip.manifest_status === 'COMPLETED'
-                            ? 'Loaded'
-                            : trip.manifest_status === 'LOADING'
-                              ? 'Loading'
-                              : 'Assigned'}
+                      <LoadStatus
+                        status={trip.status}
+                        manifestStatus={trip.manifest_status}
+                        draft={editable}
+                      />
                       {!editable &&
                         trip.status === 'PLANNED' &&
                         trip.manifest_status === 'COMPLETED' &&
@@ -771,6 +810,29 @@ export function ClusterPlanner({ detail, context, priorities, reference, fleet }
                           </span>
                         )}
                     </span>
+                    <div className="basis-full space-y-2 border-t border-border pt-3">
+                      <span className="text-xs font-semibold text-muted">Orders in this load</span>
+                      <ul className="flex flex-wrap gap-2">
+                        {trip.stops.map((stop) => (
+                          <li
+                            key={stop.id}
+                            className="rounded-xl border border-border bg-surface px-3 py-2 text-xs"
+                          >
+                            <span className="block break-all font-semibold">
+                              {formatOrderId(
+                                stop.public_reference ??
+                                  priorities.find((order) => order.orderId === stop.order_id)
+                                    ?.publicReference,
+                                stop.order_id,
+                              )}
+                            </span>
+                            {stop.outlet_name && (
+                              <span className="mt-1 block text-muted">{stop.outlet_name}</span>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
                     {!editable && (
                       <button
                         className={button}

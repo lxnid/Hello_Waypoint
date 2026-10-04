@@ -13,6 +13,8 @@ export type Order = {
   eligible_date: string;
   latest_decision?: string;
   deferred?: boolean;
+  next_eligible_date?: string | null;
+  deferral_reason?: string | null;
   days_since_last_served?: number | null;
   last_served_date?: string | null;
   history_status?: string;

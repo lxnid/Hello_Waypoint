@@ -1,16 +1,20 @@
+import { planningBlockReason } from './planning-window.js';
 import { departureBlockReasonSql } from './departure-readiness.js';
-import { and, eq, gt, sql } from 'drizzle-orm';
+import { and, asc, eq, gt, inArray, sql } from 'drizzle-orm';
 import { createHash, randomUUID } from 'node:crypto';
 import type { CreateOrder } from '@waypoint/contracts';
 import type { Database } from '../../db/client.js';
 import {
   auditEvents,
+  districts,
   loadManifests,
   operatingCalendar,
+  productInventory,
   orderLines,
   orders,
   outlets,
   plans,
+  planningContexts,
   products,
   syncOperations,
   trips,
@@ -39,6 +43,45 @@ export async function requireActor(
   return actor;
 }
 
+export async function updateProductInventory(
+  db: Database,
+  actorId: string,
+  productId: string,
+  depotId: 'Peliyagoda' | 'Kandy',
+  availableQuantity: number,
+) {
+  return db.transaction(async (tx) => {
+    const actor = await requireActor(tx, actorId, 'DISPATCHER');
+    if (!Number.isSafeInteger(availableQuantity) || availableQuantity < 0)
+      throw new WorkflowError('Available quantity must be a non-negative whole number', 400);
+    const [product] = await tx
+      .select({ id: products.id })
+      .from(products)
+      .where(eq(products.id, productId));
+    if (!product) throw new WorkflowError('Catalogue item not found', 404);
+    const [stock] = await tx
+      .insert(productInventory)
+      .values({ productId, depotId, availableQuantity })
+      .onConflictDoUpdate({
+        target: [productInventory.productId, productInventory.depotId],
+        set: { availableQuantity },
+      })
+      .returning();
+    await tx.insert(auditEvents).values({
+      actorId: actor.id,
+      action: 'PRODUCT_INVENTORY_UPDATED',
+      entityType: 'product_inventory',
+      entityId: productId,
+      details: { depotId, availableQuantity },
+    });
+    return {
+      productId: stock!.productId,
+      depotId: stock!.depotId,
+      availableQuantity: stock!.availableQuantity,
+    };
+  });
+}
+
 export async function createOrderDraft(
   db: Database | Transaction,
   actorId: string,
@@ -48,11 +91,17 @@ export async function createOrderDraft(
     const actor = await requireActor(tx, actorId, 'STORE_MANAGER');
     if (!actor.outletId || !input.lines.length)
       throw new WorkflowError('An outlet and product lines are required', 400);
-    const [outlet] = await tx.select().from(outlets).where(eq(outlets.id, actor.outletId));
+    if (new Set(input.lines.map((line) => line.productId)).size !== input.lines.length)
+      throw new WorkflowError('Each product may appear only once per order', 400);
+    const [outlet] = await tx
+      .select({ brandId: outlets.brandId, depotId: districts.depotId })
+      .from(outlets)
+      .innerJoin(districts, eq(districts.id, outlets.districtId))
+      .where(eq(outlets.id, actor.outletId));
     const [order] = await tx
       .insert(orders)
       .values({
-        publicReference: `ORD-${randomUUID()}`,
+        publicReference: `ORD-${randomUUID().replace(/-/g, '').slice(0, 8).toUpperCase()}`,
         outletId: actor.outletId,
         format: 'ITEMIZED',
         temperatureRequirement: input.temperatureRequirement,
@@ -72,6 +121,25 @@ export async function createOrderDraft(
         product.temperatureRequirement !== input.temperatureRequirement
       )
         throw new WorkflowError('Product is not available to this order', 400);
+      if (product.maxOrderQuantity !== null && line.quantity > product.maxOrderQuantity)
+        throw new WorkflowError(
+          `${product.name}: maximum ${product.maxOrderQuantity} ${product.orderingUnit} per order`,
+          400,
+        );
+      const [stock] = await tx
+        .select({ available: productInventory.availableQuantity })
+        .from(productInventory)
+        .where(
+          and(
+            eq(productInventory.productId, product.id),
+            eq(productInventory.depotId, outlet!.depotId),
+          ),
+        );
+      if (!stock || line.quantity > stock.available)
+        throw new WorkflowError(
+          `${product.name}: only ${stock?.available ?? 0} ${product.orderingUnit} available at ${outlet!.depotId}`,
+          400,
+        );
       await tx.insert(orderLines).values({
         orderId: order!.id,
         productId: product.id,
@@ -111,7 +179,11 @@ export async function submitOrder(
       throw new WorkflowError('Order is not available to this outlet', 403);
     if (order.status !== 'DRAFT' || order.format !== 'ITEMIZED')
       throw new WorkflowError('Only itemized drafts can be submitted');
-    const [outlet] = await tx.select().from(outlets).where(eq(outlets.id, order.outletId));
+    const [outlet] = await tx
+      .select({ brandId: outlets.brandId, depotId: districts.depotId })
+      .from(outlets)
+      .innerJoin(districts, eq(districts.id, outlets.districtId))
+      .where(eq(outlets.id, order.outletId));
     const lines = await tx
       .select({ line: orderLines, product: products })
       .from(orderLines)
@@ -119,7 +191,31 @@ export async function submitOrder(
       .where(eq(orderLines.orderId, orderId))
       .orderBy(orderLines.lineNumber);
     if (!lines.length) throw new WorkflowError('Order must contain at least one line');
+    const stockRows = await tx
+      .select()
+      .from(productInventory)
+      .where(
+        and(
+          eq(productInventory.depotId, outlet!.depotId),
+          inArray(
+            productInventory.productId,
+            lines.map(({ product }) => product.id),
+          ),
+        ),
+      )
+      .orderBy(asc(productInventory.productId))
+      .for('update');
+    const stockByProduct = new Map(stockRows.map((stock) => [stock.productId, stock]));
+    const requiredByProduct = new Map<string, number>();
+    for (const { line, product } of lines)
+      requiredByProduct.set(product.id, (requiredByProduct.get(product.id) ?? 0) + line.quantity);
     for (const { line, product } of lines) {
+      const requiredQuantity = requiredByProduct.get(product.id)!;
+      if (product.maxOrderQuantity !== null && requiredQuantity > product.maxOrderQuantity)
+        throw new WorkflowError(
+          `${product.name}: maximum ${product.maxOrderQuantity} ${product.orderingUnit} per order`,
+          400,
+        );
       if (
         !product.isActive ||
         product.brandId !== outlet!.brandId ||
@@ -127,6 +223,12 @@ export async function submitOrder(
       )
         throw new WorkflowError(
           'Product brand, temperature or availability does not match the order',
+        );
+      const stock = stockByProduct.get(product.id);
+      if (!stock || requiredQuantity > stock.availableQuantity)
+        throw new WorkflowError(
+          `${product.name}: only ${stock?.availableQuantity ?? 0} ${product.orderingUnit} available at ${outlet!.depotId}`,
+          400,
         );
       await tx
         .update(orderLines)
@@ -169,6 +271,18 @@ export async function submitOrder(
       .set({ status: 'SUBMITTED', submittedAt: at, eligibleDate: eligible.date })
       .where(eq(orders.id, orderId))
       .returning();
+    for (const [productId, quantity] of requiredByProduct) {
+      const stock = stockByProduct.get(productId)!;
+      await tx
+        .update(productInventory)
+        .set({ availableQuantity: stock.availableQuantity - quantity })
+        .where(
+          and(
+            eq(productInventory.productId, productId),
+            eq(productInventory.depotId, outlet!.depotId),
+          ),
+        );
+    }
     await tx.insert(auditEvents).values({
       actorId,
       action: 'ORDER_SUBMITTED',
@@ -193,6 +307,12 @@ export async function editPlan<T>(
     const [plan] = await tx.select().from(plans).where(eq(plans.id, planId)).for('update');
     if (!plan || plan.status !== 'DRAFT' || plan.version !== version)
       throw new WorkflowError('Plan changed or has already been released');
+    const [context] = await tx
+      .select()
+      .from(planningContexts)
+      .where(eq(planningContexts.id, plan.contextId));
+    const blocker = planningBlockReason(context?.kind ?? 'LIVE');
+    if (blocker) throw new WorkflowError(blocker);
     const result = await edit(tx);
     await tx
       .update(plans)

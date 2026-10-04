@@ -1,582 +1,344 @@
-import { useState } from 'react';
-import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import {
-  ArrowLeft,
-  ArrowRight,
-  ClipboardCheck,
-  Package,
-  Plus,
-  Send,
-  TriangleAlert,
-} from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
+import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
+import { PanelRightClose, PanelRightOpen, Search } from 'lucide-react';
 import type { User } from '@waypoint/contracts';
-import { request } from '../../api';
+import { api, request } from '../../api';
+import type { Page } from '../../types/store-workspace';
+import { button, field, panel, Temperature } from './store-ui';
+import { StoreCatalog } from './StoreCatalog';
+import { OrderComposer } from './OrderComposer';
+import { StoreOrderDetails } from './StoreOrderDetails';
+import { formatOrderId, formatVehicleId, formatLoadId } from '../utils/idFormatters';
 
-const panel = 'rounded-card border border-border bg-white p-5';
-const field = 'mt-2 min-h-11 w-full rounded-control border border-border bg-white px-4 text-sm';
-const button =
-  'inline-flex min-h-12 items-center justify-center gap-2 rounded-control bg-primary px-5 text-sm text-white disabled:opacity-40';
-import type { Product, Attempt, Detail, Page, ReceiptCounts } from '../../types/store-workspace';
-const json = (body: unknown, method = 'POST') => ({ method, body: JSON.stringify(body) });
 export function StoreWorkspace({ user }: { user: User }) {
   const cache = useQueryClient();
-  const [tab, setTab] = useState<'orders' | 'new'>('orders');
-  const [selected, setSelected] = useState('');
-  const orders = useInfiniteQuery({
-    queryKey: ['store', user.id, 'orders'],
-    initialPageParam: '',
-    queryFn: ({ pageParam }) =>
-      request<Page>(
-        `/orders?limit=30${pageParam ? `&cursor=${encodeURIComponent(pageParam)}` : ''}`,
-      ),
-    getNextPageParam: (page) => page.nextCursor ?? undefined,
+  const navigate = useNavigate();
+  const location = useLocation();
+  const [params] = useSearchParams();
+  const [summaryOpen, setSummaryOpen] = useState(true);
+
+  const tab = location.pathname.split('/')[2] || 'orders';
+  const selected = params.get('orderId') ?? '';
+
+  const [temperature, setTemperature] = useState('');
+  const [status, setStatus] = useState('');
+  const [search, setSearch] = useState('');
+
+  useEffect(() => {
+    setStatus('');
+    setTemperature('');
+    setSearch('');
+  }, [tab]);
+
+  const profile = useQuery({
+    queryKey: ['store', user.id, 'profile'],
+    queryFn: api.catalog.profile,
+    refetchInterval: 30000,
   });
+
+  const catalog = useQuery({
+    queryKey: ['store', user.id, 'catalog'],
+    queryFn: () => api.catalog.list(),
+    refetchInterval: 30000,
+  });
+
+  const orders = useInfiniteQuery({
+    queryKey: ['store', user.id, 'orders', tab, temperature, status, search],
+    initialPageParam: '',
+    queryFn: ({ pageParam }) => {
+      const q = new URLSearchParams({ limit: '30', view: tab === 'history' ? 'history' : 'live' });
+      if (tab === 'deferred') q.set('deferred', 'true');
+      else if (tab !== 'history') q.set('deferred', 'false');
+      if (temperature) q.set('temperature', temperature);
+      if (status) q.set('status', status);
+      if (search) q.set('q', search);
+      if (pageParam) q.set('cursor', pageParam);
+      return request<Page>(`/orders?${q}`);
+    },
+    getNextPageParam: (p) => p.nextCursor ?? undefined,
+    enabled: ['orders', 'deferred', 'history', 'vehicles'].includes(tab),
+    refetchInterval: 15000,
+  });
+
+  const vehicles = useQuery({
+    queryKey: ['store', user.id, 'vehicles'],
+    queryFn: api.catalog.vehicles,
+    enabled: tab === 'vehicles',
+    refetchInterval: 15000,
+  });
+
   const refresh = () => {
     void cache.invalidateQueries({ queryKey: ['store', user.id] });
   };
+
+  const products = catalog.data ?? [];
+  const monthly = profile.data?.monthly_summary;
+
   return (
-    <div className="mx-auto max-w-5xl space-y-5">
-      <header className="flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold">Store orders</h1>
-          <p className="mt-1 text-sm text-muted">
-            {user.outletId} · Replenishment and goods receipts
-          </p>
-        </div>
-        <button
-          className={button}
-          onClick={() => {
-            setSelected('');
-            setTab(tab === 'new' ? 'orders' : 'new');
-          }}
+    <div className="flex-1 min-h-0 h-full flex flex-col overflow-hidden">
+      {(profile.error || catalog.error) && (
+        <p
+          role="alert"
+          className="mb-4 shrink-0 rounded-control border border-red-200 bg-red-50 p-3 text-sm text-red-700"
         >
-          {tab === 'new' ? <ArrowLeft size={18} /> : <Plus size={18} />}{' '}
-          {tab === 'new' ? 'Back to orders' : 'New order'}
-        </button>
-      </header>
+          {(profile.error ?? catalog.error)?.message}
+        </p>
+      )}
+
       {selected ? (
-        <StoreOrder
-          key={selected}
-          id={selected}
-          user={user}
-          back={() => setSelected('')}
-          refresh={refresh}
-        />
-      ) : tab === 'new' ? (
-        <NewOrder
-          user={user}
-          done={(id) => {
-            setTab('orders');
-            setSelected(id);
-            refresh();
-          }}
-        />
-      ) : (
-        <>
-          {orders.error && (
-            <p role="alert" className="text-red-800">
-              {orders.error.message}
-            </p>
-          )}
-          {orders.isPending && <p role="status">Loading orders…</p>}
-          <div className="space-y-3">
-            {orders.data?.pages
-              .flatMap((page) => page.items)
-              .map((order) => (
-                <button
-                  key={order.id}
-                  onClick={() => setSelected(order.id)}
-                  className={`${panel} flex w-full items-center gap-4 text-left`}
-                >
-                  <Package size={24} />
-                  <div className="flex-1">
-                    <strong>{order.public_reference}</strong>
-                    <p className="mt-2 text-sm text-muted">
-                      {order.requested_date} · {order.order_size} items ·{' '}
-                      {order.temperature_requirement}
-                    </p>
-                  </div>
-                  <span className="text-xs text-muted">{order.status}</span>
-                  <ArrowRight size={20} />
-                </button>
-              ))}
-          </div>
-          {orders.data?.pages[0]?.items.length === 0 && (
-            <p className={panel}>No orders yet. Create your first replenishment order.</p>
-          )}
-          {orders.hasNextPage && (
-            <button
-              className={button}
-              disabled={orders.isFetchingNextPage}
-              onClick={() => void orders.fetchNextPage()}
-            >
-              Load more orders
-            </button>
-          )}
-        </>
-      )}
-    </div>
-  );
-}
-function NewOrder({ user, done }: { user: User; done: (id: string) => void }) {
-  const catalog = useQuery({
-    queryKey: ['store', user.id, 'catalog'],
-    queryFn: () => request<Product[]>('/catalog'),
-  });
-  const [temperature, setTemperature] = useState<'ambient' | 'chilled'>('ambient');
-  const [date, setDate] = useState('');
-  const [quantities, setQuantities] = useState<Record<string, number>>({});
-  const create = useMutation({
-    mutationFn: () =>
-      request<{ id: string }>(
-        '/orders',
-        json({
-          requestedDate: date,
-          temperatureRequirement: temperature,
-          lines: Object.entries(quantities)
-            .filter(
-              ([id, quantity]) =>
-                quantity > 0 &&
-                catalog.data?.some(
-                  (product) => product.id === id && product.temperature_requirement === temperature,
-                ),
-            )
-            .map(([productId, quantity]) => ({ productId, quantity })),
-        }),
-      ),
-    onSuccess: (result) => done(result.id),
-  });
-  const products =
-    catalog.data?.filter((product) => product.temperature_requirement === temperature) ?? [];
-  return (
-    <form
-      className={`${panel} space-y-5`}
-      onSubmit={(event) => {
-        event.preventDefault();
-        create.mutate();
-      }}
-    >
-      <h2 className="text-xl font-semibold">Create replenishment order</h2>
-      <p className="text-sm text-muted">
-        Save a draft, review its quantities, then submit for dispatch. Ambient and chilled products
-        use separate orders.
-      </p>
-      <div className="grid gap-4 sm:grid-cols-2">
-        <label className="text-sm">
-          Requested delivery date
-          <input
-            type="date"
-            className={field}
-            required
-            value={date}
-            onChange={(event) => setDate(event.target.value)}
+        <div className="flex-1 min-h-0 overflow-y-auto pr-1">
+          <StoreOrderDetails
+            key={selected}
+            id={selected}
+            user={user}
+            products={products}
+            back={() => navigate(`/store/${tab}`)}
+            refresh={refresh}
           />
-        </label>
-        <label className="text-sm">
-          Temperature
-          <select
-            className={field}
-            value={temperature}
-            onChange={(event) => setTemperature(event.target.value as typeof temperature)}
-          >
-            <option value="ambient">Ambient</option>
-            <option value="chilled">Chilled</option>
-          </select>
-        </label>
-      </div>
-      {products.map((product) => (
-        <label
-          key={product.id}
-          className="flex items-center justify-between gap-4 rounded-control border border-border p-4"
-        >
-          <span>
-            <strong className="text-sm">{product.name}</strong>
-            <span className="mt-1 block text-xs text-muted">
-              {product.sku} · {product.ordering_unit}
-            </span>
-          </span>
-          <input
-            aria-label={`Quantity of ${product.name}`}
-            type="number"
-            min="0"
-            step="1"
-            className="min-h-11 w-24 rounded-xl border border-border px-3"
-            value={quantities[product.id] ?? 0}
-            onChange={(event) =>
-              setQuantities({ ...quantities, [product.id]: Number(event.target.value) })
-            }
-          />
-        </label>
-      ))}
-      {(catalog.error || create.error) && (
-        <p role="alert" className="text-sm text-red-800">
-          {(catalog.error ?? create.error)?.message}
-        </p>
-      )}
-      <button
-        className={button}
-        disabled={
-          create.isPending || !products.some((product) => (quantities[product.id] ?? 0) > 0)
-        }
-      >
-        {create.isPending ? 'Saving…' : 'Save draft'}
-      </button>
-    </form>
-  );
-}
-function StoreOrder({
-  id,
-  user,
-  back,
-  refresh,
-}: {
-  id: string;
-  user: User;
-  back: () => void;
-  refresh: () => void;
-}) {
-  const detail = useQuery({
-    queryKey: ['store', user.id, 'order', id],
-    queryFn: () => request<Detail>(`/orders/${id}`),
-  });
-  const submit = useMutation({
-    mutationFn: () => request(`/orders/${id}/submit`, json({})),
-    onSuccess: refresh,
-  });
-  const remove = useMutation({
-    mutationFn: () => request(`/orders/${id}`, json({}, 'DELETE')),
-    onSuccess: () => {
-      refresh();
-      back();
-    },
-  });
-  const data = detail.data;
-  return (
-    <div className="space-y-5">
-      <button
-        onClick={back}
-        className="sticky top-0 z-20 -mt-1 flex min-h-11 w-full items-center gap-2 bg-surface py-1"
-      >
-        <ArrowLeft size={20} />
-        Back to orders
-      </button>
-      {(detail.error || submit.error || remove.error) && (
-        <p role="alert" className="text-red-800">
-          {(detail.error ?? submit.error ?? remove.error)?.message}
-        </p>
-      )}
-      {data && (
-        <>
-          <section className={panel}>
-            <div className="flex justify-between gap-3">
-              <h2 className="font-semibold">{data.order.public_reference}</h2>
-              <span className="text-sm text-muted">{data.order.status}</span>
-            </div>
-            <ul className="my-5 divide-y divide-border">
-              {data.lines.map((line) => (
-                <li key={line.id} className="flex justify-between py-4">
-                  <span>{line.name}</span>
-                  <span>× {line.quantity}</span>
-                </li>
-              ))}
-            </ul>
-            {data.aggregate && <p>{data.aggregate.units} aggregate units</p>}
-            {data.order.status === 'DRAFT' && (
-              <div className="flex gap-3">
-                <button
-                  className={button}
-                  disabled={submit.isPending || remove.isPending}
-                  onClick={() => submit.mutate()}
-                >
-                  <Send size={18} />
-                  Submit order
-                </button>
-                <button
-                  className="min-h-12 rounded-control border border-border px-4"
-                  disabled={submit.isPending || remove.isPending}
-                  onClick={() => remove.mutate()}
-                >
-                  Delete draft
-                </button>
-              </div>
-            )}
-          </section>
-          {data.attempts
-            .filter((attempt) => attempt.completed_at)
-            .map((attempt) => (
-              <Receipt key={attempt.id} attempt={attempt} data={data} refresh={refresh} />
-            ))}
-          {data.stops.length > 0 && <IssueReport data={data} refresh={refresh} />}
-          <section className={panel}>
-            <h2 className="font-semibold">Reported issues</h2>
-            {data.issues.length === 0 ? (
-              <p className="mt-3 text-sm text-muted">No issues reported for this order.</p>
-            ) : (
-              data.issues.map((issue) => (
-                <div key={issue.id} className="mt-4 border-t border-border pt-4 text-sm">
-                  <strong>{issue.type}</strong>
-                  <p>{issue.notes}</p>
-                  <p className="mt-2 text-muted">
-                    {issue.resolution ?? 'Awaiting dispatcher resolution'}
-                  </p>
-                </div>
-              ))
-            )}
-          </section>
-        </>
-      )}
-    </div>
-  );
-}
-
-function Receipt({
-  attempt,
-  data,
-  refresh,
-}: {
-  attempt: Attempt;
-  data: Detail;
-  refresh: () => void;
-}) {
-  const [temperature, setTemperature] = useState('');
-  const [verified, setVerified] = useState(false);
-  const [outcome, setOutcome] = useState(attempt.outcome ?? 'DELIVERED');
-  const [counts, setCounts] = useState<Record<string, ReceiptCounts>>({});
-  const rows = data.aggregate
-    ? [{ id: 'aggregate', name: 'Aggregate consignment', quantity: attempt.delivered_units ?? 0 }]
-    : data.lines.map((line) => ({
-        id: line.id,
-        name: line.name,
-        quantity:
-          attempt.lines?.find((record) => record.order_line_id === line.id)?.delivered_quantity ??
-          0,
-      }));
-  const actual = (row: (typeof rows)[number]) =>
-    counts[row.id] ?? { accepted: row.quantity, missing: 0, damaged: 0, rejected: 0 };
-  const balanced = rows.every(
-    (row) =>
-      Object.values(actual(row)).every((value) => Number.isInteger(value) && value >= 0) &&
-      Object.values(actual(row)).reduce((sum, value) => sum + value, 0) === row.quantity,
-  );
-  const receipt = useMutation({
-    mutationFn: () =>
-      request(
-        `/attempts/${attempt.id}/receipt`,
-        json({
-          outcome,
-          ...(temperature ? { temperatureC: temperature } : {}),
-          ...(data.aggregate
-            ? {
-                aggregate: {
-                  acceptedUnits: actual(rows[0]!).accepted,
-                  missingUnits: actual(rows[0]!).missing,
-                  damagedUnits: actual(rows[0]!).damaged,
-                  rejectedUnits: actual(rows[0]!).rejected,
-                },
-              }
-            : {
-                lines: rows.map((row) => ({
-                  orderLineId: row.id,
-                  acceptedQuantity: actual(row).accepted,
-                  missingQuantity: actual(row).missing,
-                  damagedQuantity: actual(row).damaged,
-                  rejectedQuantity: actual(row).rejected,
-                })),
-              }),
-        }),
-      ),
-    onSuccess: refresh,
-  });
-  return (
-    <section className={`${panel} space-y-4`}>
-      <h2 className="flex items-center gap-2 font-semibold">
-        <ClipboardCheck size={20} />
-        Goods receipt · {attempt.outcome}
-      </h2>
-      {attempt.receipt ? (
-        <p className="text-sm">Receipt confirmed.</p>
-      ) : (
-        <>
-          <p className="text-sm text-muted">
-            Account for the quantities reported delivered. Any missing, damaged or rejected units
-            must be included in the total.
-          </p>
-          {rows.map((row) => (
-            <div key={row.id} className="rounded-control border border-border p-4">
-              <p className="mb-3 text-sm font-medium">
-                {row.name} · {row.quantity} reported delivered
-              </p>
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                {(['accepted', 'missing', 'damaged', 'rejected'] as const).map((key) => (
-                  <label className="text-xs capitalize" key={key}>
-                    {key}
-                    <input
-                      className={field}
-                      type="number"
-                      min="0"
-                      max={row.quantity}
-                      step="1"
-                      value={actual(row)[key]}
-                      onChange={(event) => {
-                        setVerified(false);
-                        setCounts({
-                          ...counts,
-                          [row.id]: { ...actual(row), [key]: Number(event.target.value) },
-                        });
-                      }}
-                    />
-                  </label>
-                ))}
-              </div>
-            </div>
-          ))}
-          <label className="block text-sm">
-            Receipt outcome
-            <select
-              className={field}
-              value={outcome}
-              onChange={(event) => setOutcome(event.target.value)}
-            >
-              {['DELIVERED', 'PARTIAL', 'REJECTED', 'FAILED'].map((value) => (
-                <option key={value}>{value}</option>
-              ))}
-            </select>
-          </label>
-          {data.order.temperature_requirement === 'chilled' && (
-            <label className="block text-sm">
-              Measured receipt temperature (°C)
-              <input
-                className={field}
-                type="number"
-                step="0.1"
-                value={temperature}
-                onChange={(event) => setTemperature(event.target.value)}
-              />
-            </label>
-          )}
-          {!balanced && (
-            <p className="text-sm text-amber-800">
-              The four quantities must total the reported delivered quantity for every item.
+        </div>
+      ) : tab === 'create' ? (
+        <div className="flex-1 min-h-0 overflow-y-auto pr-1">
+          {catalog.isPending ? (
+            <p role="status" className="p-4 text-sm text-muted">
+              Loading catalogue…
             </p>
-          )}
-          <label className="flex gap-3 text-sm">
-            <input
-              type="checkbox"
-              checked={verified}
-              onChange={(event) => setVerified(event.target.checked)}
+          ) : (
+            <OrderComposer
+              products={products}
+              done={(id) => {
+                refresh();
+                navigate(`/store/orders?orderId=${id}`);
+              }}
             />
-            I checked the goods against these quantities.
-          </label>
-          {receipt.error && (
-            <p role="alert" className="text-sm text-red-800">
-              {receipt.error.message}
-            </p>
           )}
-          <button
-            className={button}
-            disabled={
-              receipt.isPending ||
-              !verified ||
-              !balanced ||
-              (data.order.temperature_requirement === 'chilled' && !temperature)
-            }
-            onClick={() => receipt.mutate()}
-          >
-            Confirm receipt
-          </button>
-        </>
-      )}
-    </section>
-  );
-}
+        </div>
+      ) : tab === 'items' ? (
+        <div className="flex-1 min-h-0 overflow-y-auto pr-1">
+          {catalog.isPending ? (
+            <p role="status" className="p-4 text-sm text-muted">
+              Loading catalogue…
+            </p>
+          ) : (
+            <StoreCatalog products={products} />
+          )}
+        </div>
+      ) : tab === 'vehicles' ? (
+        <div className="flex-1 min-h-0 overflow-y-auto pr-1">
+          <section className={panel}>
+            <h1 className="text-xl font-semibold">Delivery vehicles</h1>
+            <p className="mt-3 text-sm text-muted">
+              Released delivery assignments for your store · {profile.data?.depot_id}
+            </p>
+            {vehicles.isPending && (
+              <p role="status" className="mt-5 text-sm text-muted">
+                Loading assignments…
+              </p>
+            )}
+            {vehicles.error && (
+              <p role="alert" className="mt-5 text-sm text-red-600">
+                {vehicles.error.message}
+              </p>
+            )}
+            {vehicles.data?.length === 0 && (
+              <p className="mt-6 text-sm text-muted">No delivery vehicle assigned yet.</p>
+            )}
+            <div className="mt-6 grid gap-4 lg:grid-cols-2">
+              {vehicles.data?.map((v) => (
+                <article key={v.load_id} className="rounded-[20px] border border-border p-5">
+                  <div className="flex justify-between gap-4">
+                    <strong>{formatVehicleId(v.vehicle_id)}</strong>
+                    <span className="text-sm capitalize text-muted">
+                      {v.trip_status.toLowerCase().replaceAll('_', ' ')}
+                    </span>
+                  </div>
+                  <p className="mt-4 text-sm">
+                    {v.driver_name} · {v.vehicle_type}
+                  </p>
+                  <p className="mt-2 text-sm text-muted">{v.operating_date}</p>
+                  <p className="mt-4 break-all text-xs text-muted">
+                    Load ID: {formatLoadId(v.load_id)}
+                  </p>
+                </article>
+              ))}
+            </div>
+          </section>
+        </div>
+      ) : (
+        <div className="flex flex-1 min-h-0 h-full gap-5 overflow-hidden flex-col xl:flex-row">
+          <section className="flex flex-1 min-h-0 flex-col overflow-y-auto rounded-card border border-border bg-white p-5 lg:p-7">
+            <div className="mb-6 flex flex-wrap items-center gap-3">
+              <span className="text-sm text-muted">Filter by</span>
+              <select
+                aria-label="Filter by temperature"
+                className={`${field} !w-40`}
+                value={temperature}
+                onChange={(e) => setTemperature(e.target.value)}
+              >
+                <option value="">Temperature</option>
+                <option value="ambient">Ambient</option>
+                <option value="chilled">Chilled</option>
+              </select>
+              <select
+                aria-label="Filter by order status"
+                className={`${field} !w-40`}
+                value={status}
+                onChange={(e) => setStatus(e.target.value)}
+              >
+                <option value="">Status</option>
+                {(tab === 'history'
+                  ? ['COMPLETED', 'CLOSED_EXCEPTION', 'CANCELLED']
+                  : ['DRAFT', 'SUBMITTED']
+                ).map((s) => (
+                  <option key={s} value={s}>
+                    {s.replaceAll('_', ' ')}
+                  </option>
+                ))}
+              </select>
+              <label className="relative min-w-40 flex-1">
+                <input
+                  aria-label="Search store orders"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Search Order ID"
+                  className={`${field} pr-10`}
+                />
+                <Search size={18} className="absolute right-3 top-3 text-muted" />
+              </label>
+              <button
+                aria-label={summaryOpen ? 'Hide order summary' : 'Show order summary'}
+                onClick={() => setSummaryOpen(!summaryOpen)}
+                className="flex h-11 w-11 items-center justify-center rounded-control border border-border p-2 text-muted hover:bg-surface xl:hidden"
+              >
+                {summaryOpen ? <PanelRightClose size={20} /> : <PanelRightOpen size={20} />}
+              </button>
+            </div>
+            <div className="mb-3 hidden grid-cols-[1.4fr_1.2fr_1fr_.7fr_.7fr] gap-4 px-6 text-sm text-muted xl:grid">
+              <span>Order ID</span>
+              <span>Created at</span>
+              <span>Order type</span>
+              <span>Order size</span>
+              <span>Status</span>
+            </div>
+            {orders.isPending && (
+              <p role="status" className="text-sm text-muted">
+                Loading orders…
+              </p>
+            )}
+            {orders.error && (
+              <p role="alert" className="text-sm text-red-600">
+                {orders.error.message}
+              </p>
+            )}
+            <div className="space-y-3">
+              {orders.data?.pages
+                .flatMap((p) => p.items)
+                .map((o) => (
+                  <button
+                    key={o.id}
+                    onClick={() => navigate(`/store/${tab}?orderId=${o.id}`)}
+                    className="grid min-h-20 w-full grid-cols-2 items-center gap-4 rounded-[22px] border border-border bg-white/40 px-6 py-4 text-left transition-colors hover:bg-white xl:grid-cols-[1.4fr_1.2fr_1fr_.7fr_.7fr]"
+                  >
+                    <strong className="break-all text-sm font-semibold">
+                      {formatOrderId(o.public_reference, o.id)}
+                    </strong>
+                    <span className="text-sm">
+                      {new Intl.DateTimeFormat('en-GB', {
+                        timeZone: 'Asia/Colombo',
+                        dateStyle: 'short',
+                        timeStyle: 'short',
+                      }).format(new Date(o.created_at))}
+                    </span>
+                    <Temperature value={o.temperature_requirement} />
+                    <span className="text-sm text-muted">{o.order_size} units</span>
+                    <span className="text-sm text-right text-muted">
+                      {o.deferred ? (
+                        <span>
+                          <span className="block font-medium text-amber-800">Deferred</span>
+                          {(o.next_eligible_date || (o.eligible_date && o.eligible_date > o.requested_date ? o.eligible_date : null)) && (
+                            <span className="block text-xs font-normal text-muted">
+                              Next: {o.next_eligible_date || o.eligible_date}
+                            </span>
+                          )}
+                        </span>
+                      ) : (
+                        <span className="capitalize">{o.status.toLowerCase().replaceAll('_', ' ')}</span>
+                      )}
+                    </span>
+                  </button>
+                ))}
+            </div>
+            {orders.data?.pages[0]?.items.length === 0 && (
+              <p className={`${panel} text-sm text-muted`}>
+                {tab === 'deferred'
+                  ? 'No deferred orders.'
+                  : tab === 'history'
+                    ? 'No completed orders yet.'
+                    : 'No matching orders. Create an order to begin.'}
+              </p>
+            )}
+            {orders.hasNextPage && (
+              <button
+                className={`${button} mt-5`}
+                disabled={orders.isFetchingNextPage}
+                onClick={() => void orders.fetchNextPage()}
+              >
+                {orders.isFetchingNextPage ? 'Loading…' : 'Load more'}
+              </button>
+            )}
+          </section>
 
-function IssueReport({ data, refresh }: { data: Detail; refresh: () => void }) {
-  const [stopId, setStopId] = useState(data.stops[0]?.id ?? '');
-  const [type, setType] = useState('DAMAGED');
-  const [quantity, setQuantity] = useState(1);
-  const [notes, setNotes] = useState('');
-  const issue = useMutation({
-    mutationFn: () =>
-      request(
-        '/issues',
-        json({ stopId, stage: 'RECEIPT', type, affectedQuantity: quantity, notes }),
-      ),
-    onSuccess: () => {
-      setNotes('');
-      refresh();
-    },
-  });
-  return (
-    <details className={panel}>
-      <summary className="cursor-pointer font-semibold">
-        <TriangleAlert size={18} className="mr-2 inline" />
-        Report a receipt issue
-      </summary>
-      <form
-        className="mt-5 space-y-4"
-        onSubmit={(event) => {
-          event.preventDefault();
-          issue.mutate();
-        }}
-      >
-        <label className="block text-sm">
-          Delivery stop
-          <select
-            className={field}
-            value={stopId}
-            onChange={(event) => setStopId(event.target.value)}
+          {/* Right Orders Summary - matching OrdersWorkspace */}
+          <aside
+            className={`${
+              summaryOpen ? 'w-64 2xl:w-72 p-5' : 'w-14 p-2.5'
+            } hidden h-full shrink-0 flex-col rounded-card border border-border bg-white transition-[width,padding] xl:flex overflow-y-auto`}
           >
-            {data.stops.map((stop, index) => (
-              <option key={stop.id} value={stop.id}>
-                Stop {index + 1}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="block text-sm">
-          Issue type
-          <select className={field} value={type} onChange={(event) => setType(event.target.value)}>
-            {['DAMAGED', 'MISSING', 'TEMPERATURE', 'REJECTED'].map((value) => (
-              <option key={value}>{value}</option>
-            ))}
-          </select>
-        </label>
-        <label className="block text-sm">
-          Affected units
-          <input
-            type="number"
-            min="1"
-            step="1"
-            required
-            className={field}
-            value={quantity}
-            onChange={(event) => setQuantity(Number(event.target.value))}
-          />
-        </label>
-        <label className="block text-sm">
-          Details
-          <textarea
-            className={`${field} p-4`}
-            required
-            maxLength={2000}
-            value={notes}
-            onChange={(event) => setNotes(event.target.value)}
-          />
-        </label>
-        {issue.error && (
-          <p role="alert" className="text-sm text-red-800">
-            {issue.error.message}
-          </p>
-        )}
-        {issue.isSuccess && (
-          <p role="status" className="text-sm">
-            Issue recorded.
-          </p>
-        )}
-        <button className={button} disabled={issue.isPending}>
-          Report issue
-        </button>
-      </form>
-    </details>
+            {summaryOpen ? (
+              <>
+                <div className="flex items-center justify-between">
+                  <h2 className="text-base font-semibold">Orders Summary</h2>
+                  <button
+                    onClick={() => setSummaryOpen(false)}
+                    aria-label="Collapse order summary"
+                    aria-expanded={true}
+                    className="flex h-8 w-8 items-center justify-center rounded-lg text-muted hover:bg-surface hover:text-foreground transition-colors"
+                  >
+                    <PanelRightClose size={20} />
+                  </button>
+                </div>
+                <div className="my-8 flex items-center gap-5">
+                  <strong className="text-5xl font-semibold text-foreground">
+                    {monthly?.total ?? '—'}
+                  </strong>
+                  <span className="text-xs text-muted leading-tight">
+                    Orders
+                    <br />
+                    this month
+                  </span>
+                </div>
+                <dl className="grid grid-cols-[1fr_auto] gap-y-3.5 text-sm">
+                  <dt className="text-muted">Chilled order count</dt>
+                  <dd className="font-medium text-foreground">{monthly?.chilled ?? '—'}</dd>
+                  <dt className="text-muted">Fresh order count</dt>
+                  <dd className="font-medium text-foreground">{monthly?.fresh ?? '—'}</dd>
+                  <dt className="text-muted">Fragile order count</dt>
+                  <dd className="font-medium text-foreground">{monthly?.fragile ?? '—'}</dd>
+                </dl>
+              </>
+            ) : (
+              <button
+                onClick={() => setSummaryOpen(true)}
+                aria-label="Expand order summary"
+                aria-expanded={false}
+                className="flex h-9 w-9 mx-auto items-center justify-center rounded-lg text-muted hover:bg-surface hover:text-foreground transition-colors"
+              >
+                <PanelRightOpen size={20} />
+              </button>
+            )}
+          </aside>
+        </div>
+      )}
+    </div>
   );
 }
