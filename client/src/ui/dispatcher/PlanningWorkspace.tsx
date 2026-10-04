@@ -11,10 +11,11 @@ import {
   PanelRightOpen,
   Plus,
   Truck,
+  Upload,
   X,
 } from 'lucide-react';
 import type { User } from '@waypoint/contracts';
-import { request } from '../../api';
+import { request, api } from '../../api';
 import type {
   Context,
   Decision,
@@ -222,6 +223,13 @@ export function PlanningWorkspace({ user, tab }: { user: User; tab: string }) {
               </button>
             </form>
           </details>
+          <ScenarioImporter
+            busy={busy}
+            onSuccess={(batchId) => {
+              setNotice(`Scenario imported (Batch ID: ${batchId}). Context refreshed.`);
+              void cache.invalidateQueries({ queryKey: ['planning-contexts'] });
+            }}
+          />
           {selectedId && !planId && !plans.isLoading && (
             <div className={panel}>
               <h2 className="font-medium">No {depot} plan yet</h2>
@@ -268,6 +276,7 @@ export function PlanningWorkspace({ user, tab }: { user: User; tab: string }) {
       {tab === 'stores' && <StoreTable reference={reference.data} />}
       {tab === 'tracker' && <TripTracker run={run} busy={busy} />}
       {tab === 'issues' && <Issues run={run} busy={busy} />}
+      {tab === 'audit' && <AuditTrail />}
       {(contexts.isLoading || reference.isLoading || detail.isLoading) && (
         <p role="status" className="p-6 text-sm text-muted">
           Loading operational records…
@@ -1291,5 +1300,339 @@ function IssueCard({ issue, run, busy }: { issue: Issue; run: EditorProps['run']
         </form>
       )}
     </article>
+  );
+}
+
+function ScenarioImporter({
+  busy,
+  onSuccess,
+}: {
+  busy: boolean;
+  onSuccess: (batchId: string) => void;
+}) {
+  const [tab, setTab] = useState<'scenario' | 'history'>('scenario');
+  const [ordersCsv, setOrdersCsv] = useState('');
+  const [fleetCsv, setFleetCsv] = useState('');
+  const [legsCsv, setLegsCsv] = useState('');
+  const [operatingDate, setOperatingDate] = useState('2026-10-05');
+  const [scenarioVersion, setScenarioVersion] = useState('v1');
+  const [dataset, setDataset] = useState('benchmark');
+  const [statusMsg, setStatusMsg] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  async function handleScenarioSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setStatusMsg('');
+    setIsSubmitting(true);
+    try {
+      const res = await api.imports.peakScenario({
+        ordersCsv,
+        fleetCsv,
+        operatingDate,
+        version: scenarioVersion,
+      });
+      setStatusMsg(`Scenario imported successfully (Batch ${res.batchId.slice(0, 8)}).`);
+      onSuccess(res.batchId);
+    } catch (err) {
+      setStatusMsg(err instanceof Error ? err.message : 'Import failed');
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  async function handleHistorySubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setStatusMsg('');
+    setIsSubmitting(true);
+    try {
+      const res = await api.imports.history({
+        ordersCsv,
+        legsCsv,
+        dataset,
+        version: scenarioVersion,
+      });
+      setStatusMsg(`Route history imported successfully (Batch ${res.batchId.slice(0, 8)}).`);
+      onSuccess(res.batchId);
+    } catch (err) {
+      setStatusMsg(err instanceof Error ? err.message : 'Import failed');
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  function handleFileRead(file: File, setter: (val: string) => void) {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      setter(String(e.target?.result ?? ''));
+    };
+    reader.readAsText(file);
+  }
+
+  return (
+    <details className={panel}>
+      <summary className="flex cursor-pointer items-center gap-2 text-sm font-medium">
+        <Upload size={16} />
+        Import Planning Scenarios & Route History (CSV)
+      </summary>
+      <div className="mt-4 space-y-4">
+        <div className="flex gap-2 border-b border-border pb-2 text-xs">
+          <button
+            type="button"
+            className={`rounded-control px-3 py-1.5 font-medium ${tab === 'scenario' ? 'bg-primary text-white' : 'hover:bg-surface'}`}
+            onClick={() => setTab('scenario')}
+          >
+            Peak Scenario (/imports/peak-scenario)
+          </button>
+          <button
+            type="button"
+            className={`rounded-control px-3 py-1.5 font-medium ${tab === 'history' ? 'bg-primary text-white' : 'hover:bg-surface'}`}
+            onClick={() => setTab('history')}
+          >
+            Route History (/imports/history)
+          </button>
+        </div>
+
+        {tab === 'scenario' ? (
+          <form className="space-y-3" onSubmit={handleScenarioSubmit}>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="grid gap-1 text-xs text-muted">
+                Operating Date
+                <input
+                  type="date"
+                  required
+                  value={operatingDate}
+                  onChange={(e) => setOperatingDate(e.target.value)}
+                  className={field}
+                />
+              </label>
+              <label className="grid gap-1 text-xs text-muted">
+                Scenario Version
+                <input
+                  type="text"
+                  required
+                  value={scenarioVersion}
+                  onChange={(e) => setScenarioVersion(e.target.value)}
+                  className={field}
+                />
+              </label>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="grid gap-1 text-xs text-muted">
+                Orders CSV
+                <input
+                  type="file"
+                  accept=".csv,text/csv"
+                  onChange={(e) =>
+                    e.target.files?.[0] && handleFileRead(e.target.files[0], setOrdersCsv)
+                  }
+                  className="text-xs"
+                />
+                <textarea
+                  placeholder="Or paste Orders CSV content..."
+                  value={ordersCsv}
+                  onChange={(e) => setOrdersCsv(e.target.value)}
+                  className={`${field} h-20 font-mono text-xs`}
+                />
+              </label>
+              <label className="grid gap-1 text-xs text-muted">
+                Fleet CSV
+                <input
+                  type="file"
+                  accept=".csv,text/csv"
+                  onChange={(e) =>
+                    e.target.files?.[0] && handleFileRead(e.target.files[0], setFleetCsv)
+                  }
+                  className="text-xs"
+                />
+                <textarea
+                  placeholder="Or paste Fleet CSV content..."
+                  value={fleetCsv}
+                  onChange={(e) => setFleetCsv(e.target.value)}
+                  className={`${field} h-20 font-mono text-xs`}
+                />
+              </label>
+            </div>
+            <button
+              className={button}
+              disabled={isSubmitting || busy || !ordersCsv || !fleetCsv}
+            >
+              {isSubmitting ? 'Importing…' : 'Import Scenario'}
+            </button>
+          </form>
+        ) : (
+          <form className="space-y-3" onSubmit={handleHistorySubmit}>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="grid gap-1 text-xs text-muted">
+                Dataset identifier
+                <input
+                  type="text"
+                  required
+                  value={dataset}
+                  onChange={(e) => setDataset(e.target.value)}
+                  className={field}
+                />
+              </label>
+              <label className="grid gap-1 text-xs text-muted">
+                History Version
+                <input
+                  type="text"
+                  required
+                  value={scenarioVersion}
+                  onChange={(e) => setScenarioVersion(e.target.value)}
+                  className={field}
+                />
+              </label>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="grid gap-1 text-xs text-muted">
+                Orders CSV
+                <input
+                  type="file"
+                  accept=".csv,text/csv"
+                  onChange={(e) =>
+                    e.target.files?.[0] && handleFileRead(e.target.files[0], setOrdersCsv)
+                  }
+                  className="text-xs"
+                />
+                <textarea
+                  placeholder="Or paste Orders CSV content..."
+                  value={ordersCsv}
+                  onChange={(e) => setOrdersCsv(e.target.value)}
+                  className={`${field} h-20 font-mono text-xs`}
+                />
+              </label>
+              <label className="grid gap-1 text-xs text-muted">
+                Route Legs CSV
+                <input
+                  type="file"
+                  accept=".csv,text/csv"
+                  onChange={(e) =>
+                    e.target.files?.[0] && handleFileRead(e.target.files[0], setLegsCsv)
+                  }
+                  className="text-xs"
+                />
+                <textarea
+                  placeholder="Or paste Route Legs CSV content..."
+                  value={legsCsv}
+                  onChange={(e) => setLegsCsv(e.target.value)}
+                  className={`${field} h-20 font-mono text-xs`}
+                />
+              </label>
+            </div>
+            <button
+              className={button}
+              disabled={isSubmitting || busy || !ordersCsv || !legsCsv}
+            >
+              {isSubmitting ? 'Importing…' : 'Import Route History'}
+            </button>
+          </form>
+        )}
+        {statusMsg && (
+          <p className="rounded-control bg-surface p-3 text-xs font-medium">{statusMsg}</p>
+        )}
+      </div>
+    </details>
+  );
+}
+
+type AuditRecord = {
+  id: string;
+  actor_id: string | null;
+  action: string;
+  entity_type: string;
+  entity_id: string;
+  details: Record<string, unknown>;
+  created_at: string;
+};
+
+function AuditTrail() {
+  const [cursor, setCursor] = useState('');
+  const queryClient = useQueryClient();
+  const audit = useQuery({
+    queryKey: ['dispatcher', 'audit', cursor],
+    queryFn: () => api.audit.list(cursor ? { limit: 30, cursor } : { limit: 30 }),
+  });
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-xl font-medium">Audit Trail</h2>
+          <p className="mt-1 text-xs text-muted">
+            Immutable log of state mutations across orders, plans, trips, loads, and discrepancies.
+          </p>
+        </div>
+        <button
+          className={secondary}
+          onClick={() => void queryClient.invalidateQueries({ queryKey: ['dispatcher', 'audit'] })}
+        >
+          Refresh log
+        </button>
+      </div>
+
+      {audit.isPending && (
+        <p role="status" className="p-4 text-sm text-muted">
+          Loading audit entries…
+        </p>
+      )}
+
+      {audit.error && (
+        <div
+          role="alert"
+          className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800"
+        >
+          {audit.error.message}
+        </div>
+      )}
+
+      <div className="space-y-3">
+        {audit.data?.items.map((item: AuditRecord) => (
+          <details key={item.id} className={panel}>
+            <summary className="flex cursor-pointer flex-wrap items-center justify-between gap-3 text-sm">
+              <div className="flex items-center gap-3">
+                <span className="rounded-full bg-primary/10 px-2.5 py-0.5 font-mono text-xs font-semibold text-primary">
+                  {item.action}
+                </span>
+                <span className="font-medium text-foreground">{item.entity_type}</span>
+                <span className="font-mono text-xs text-muted">{item.entity_id.slice(0, 8)}</span>
+              </div>
+              <time className="text-xs text-muted">
+                {new Date(item.created_at).toLocaleString('en-GB', {
+                  timeZone: 'Asia/Colombo',
+                  day: 'numeric',
+                  month: 'short',
+                  hour: '2-digit',
+                  minute: '2-digit',
+                  second: '2-digit',
+                })}
+              </time>
+            </summary>
+            <div className="mt-3 border-t border-border pt-3 text-xs">
+              <p className="text-muted">Actor ID: {item.actor_id ?? 'System Automated'}</p>
+              <pre className="mt-2 overflow-x-auto rounded-lg bg-surface p-3 font-mono text-xs">
+                {JSON.stringify(item.details, null, 2)}
+              </pre>
+            </div>
+          </details>
+        ))}
+
+        {audit.data?.items.length === 0 && (
+          <p className={`${panel} text-sm text-muted`}>No audit entries recorded yet.</p>
+        )}
+      </div>
+
+      <div className="flex justify-end gap-2 pt-2">
+        {cursor && (
+          <button className={secondary} onClick={() => setCursor('')}>
+            First page
+          </button>
+        )}
+        {audit.data?.nextCursor && (
+          <button className={secondary} onClick={() => setCursor(audit.data!.nextCursor!)}>
+            Next page
+          </button>
+        )}
+      </div>
+    </div>
   );
 }

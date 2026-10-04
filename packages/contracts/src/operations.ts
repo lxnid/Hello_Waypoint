@@ -81,6 +81,7 @@ export const OrderPrioritySchema = Type.Object({
   requiresOverride: Type.Boolean(),
   historyStatus: Type.Union([Type.Literal('KNOWN'), Type.Literal('UNKNOWN')]),
 });
+export type OrderPriority = Static<typeof OrderPrioritySchema>;
 export const DeferralOverrideSchema = Type.Object(
   { version: Type.Integer({ minimum: 1 }), reason: Type.String({ minLength: 1, maxLength: 2000 }) },
   { additionalProperties: false },
@@ -91,3 +92,6 @@ export const DeferralOverrideAcknowledgementSchema = Type.Object({
   version: Type.Integer({ minimum: 1 }),
   acknowledged: Type.Literal(true),
 });
+export type DeferralOverrideAcknowledgement = Static<
+  typeof DeferralOverrideAcknowledgementSchema
+>;

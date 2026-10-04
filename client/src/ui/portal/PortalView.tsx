@@ -4,6 +4,8 @@ import {
   Boxes,
   ClipboardList,
   Clock3,
+  FileCode2,
+  History,
   LogOut,
   MapPinned,
   PanelLeftClose,
@@ -33,6 +35,7 @@ const navigation = [
   { path: 'stores', label: 'Stores', icon: Store, group: 'MANAGEMENT' },
   { path: 'tracker', label: 'Tracker', icon: MapPinned, group: 'MANAGEMENT' },
   { path: 'issues', label: 'Issues', icon: TriangleAlert, group: 'MANAGEMENT' },
+  { path: 'audit', label: 'Audit Trail', icon: History, group: 'MANAGEMENT' },
 ];
 
 function useColomboClock() {
@@ -101,8 +104,18 @@ export function PortalView({ user, logoutError, isLoggingOut, onLogout }: Props)
           <span className="text-muted">Date</span>
           <time className="font-semibold">{clock.date}</time>
         </p>
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3">
           <p className="hidden text-sm text-muted xl:block">{clock.cutoff}</p>
+          <a
+            href="/docs"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 rounded-full border border-border bg-white px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-surface hover:text-primary"
+            title="Open Swagger API documentation at /docs"
+          >
+            <FileCode2 size={14} className="text-primary" />
+            <span>API Docs (/docs)</span>
+          </a>
           <button
             type="button"
             aria-label="Account menu"
