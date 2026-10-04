@@ -42,7 +42,7 @@ beforeAll(async () => {
   loader = accounts.find((u) => u.role === 'LOADER')!.id;
   driver = accounts.find((u) => u.role === 'DRIVER')!.id;
   manager = accounts.find((u) => u.role === 'STORE_MANAGER')!.id;
-  productId = (await db!.select().from(s.products).where(eq(s.products.sku, 'DEMO-FRESH-DRY')))[0]!
+  productId = (await db!.select().from(s.products).where(eq(s.products.sku, 'FRS-RICE')))[0]!
     .id;
 });
 afterAll(async () => {

@@ -50,7 +50,7 @@ async function organic(tx: Transaction, temp: 'ambient' | 'chilled' = 'ambient')
   const [product] = await tx
     .select()
     .from(s.products)
-    .where(eq(s.products.sku, temp === 'ambient' ? 'DEMO-FRESH-DRY' : 'DEMO-FRESH-CHILL'));
+    .where(eq(s.products.sku, temp === 'ambient' ? 'FRS-RICE' : 'FRS-MILK'));
   const [order] = await tx
     .insert(s.orders)
     .values({
