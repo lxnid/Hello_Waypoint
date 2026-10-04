@@ -250,6 +250,8 @@ export const TripRowSchema = row({
   load_id: Type.Optional(uuid()),
   dispatch_ready: Type.Optional(Type.Boolean()),
   dispatch_block_reason: Type.Optional(nullable(Type.String())),
+  vehicle_type: Type.Optional(nullable(Type.String())),
+  vehicle_temp: Type.Optional(nullable(Type.String())),
   id: uuid(),
   plan_id: uuid(),
   vehicle_id: Type.String(),

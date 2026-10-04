@@ -11,6 +11,8 @@ export type Stop = {
   outlet_name: string | null;
   temperature_requirement: string;
   planned_arrival_at: string;
+  planned_travel_minutes?: string | number | null;
+  service_allowance_minutes?: string | number | null;
   window_close_at: string;
   lines: Line[];
   load_lines?: { order_line_id: string; loaded_quantity: number }[] | null;
@@ -20,6 +22,8 @@ export type Stop = {
 export type Trip = {
   id: string;
   vehicle_id: string;
+  vehicle_type?: string | null;
+  vehicle_temp?: string | null;
   load_id?: string;
   driver_name?: string;
   trip_number: number;

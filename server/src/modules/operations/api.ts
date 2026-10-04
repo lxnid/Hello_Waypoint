@@ -369,6 +369,40 @@ export const workflowRoutes: FastifyPluginAsync = async (app) => {
     'DISPATCHER',
     'Returns active drivers eligible for trip assignment',
   );
+  read(
+    '/users/receivers',
+    'List eligible receivers for delivery confirmation',
+    Type.Array(
+      Type.Object({
+        id: Type.String(),
+        name: Type.String(),
+        email: Type.String(),
+        role: Type.String(),
+        outlet_id: Type.Union([Type.String(), Type.Null()]),
+        outlet_name: Type.Union([Type.String(), Type.Null()]),
+      }),
+    ),
+    async (_actor, _id, query) => {
+      const q = (query as Record<string, string | undefined>)?.q?.trim();
+      const pattern = q ? `%${q.replace(/[\\%_]/g, '\\$&')}%` : null;
+      const outletId = (query as Record<string, string | undefined>)?.outletId?.trim();
+      const rows = await app.db.execute(sql`
+        SELECT u.id, u.display_name AS name, u.email, u.role::text AS role, u.outlet_id, ot.name AS outlet_name
+        FROM users u
+        LEFT JOIN outlets ot ON ot.id = u.outlet_id
+        WHERE u.is_active AND (u.role = 'STORE_MANAGER' OR u.role = 'LOADER' OR u.role = 'DRIVER' OR u.role = 'DISPATCHER')
+          AND (${pattern}::text IS NULL OR u.display_name ILIKE ${pattern} OR u.email ILIKE ${pattern} OR ot.name ILIKE ${pattern})
+        ORDER BY
+          CASE WHEN u.outlet_id = ${outletId ?? null} THEN 0 ELSE 1 END,
+          CASE WHEN u.role = 'STORE_MANAGER' THEN 0 ELSE 1 END,
+          u.display_name ASC
+        LIMIT 150
+      `);
+      return [...rows];
+    },
+    undefined,
+    'Returns active users and store personnel eligible to confirm and sign for deliveries',
+  );
   command(
     'PUT',
     '/planning/contexts/:id/fleet',

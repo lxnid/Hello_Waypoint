@@ -62,17 +62,32 @@ export async function seed(
         .insert(brands)
         .values(['Fresh', 'Style', 'Tech'].map((id) => ({ id, name: `Waypoint ${id}` })))
         .onConflictDoNothing();
-      for (const item of outletRows) {
+      for (let i = 0; i < outletRows.length; i++) {
+        const item = outletRows[i]!;
         await tx
           .insert(districts)
           .values({ id: item.district, name: item.district, depotId: item.depot })
           .onConflictDoNothing();
+
+        const baseLat = item.depot === 'Kandy' ? 7.2906 : 6.9271;
+        const baseLng = item.depot === 'Kandy' ? 80.6337 : 79.8612;
+        const offsetLat = ((i % 7) - 3) * 0.0082;
+        const offsetLng = (((i * 3) % 7) - 3) * 0.0078;
+        const lat = (baseLat + offsetLat).toFixed(7);
+        const lng = (baseLng + offsetLng).toFixed(7);
+        const streetNum = 10 + ((i * 13) % 200);
+
         await tx
           .insert(outlets)
           .values({
             id: item.outlet_id,
             brandId: item.brand,
             districtId: item.district,
+            name: `${item.district} ${(i % 5) + 1} - Waypoint ${item.brand}`,
+            address: `No. ${streetNum}, Main Commercial Road, ${item.district}`,
+            latitude: lat,
+            longitude: lng,
+            contact: `078 342 ${String(1000 + ((i * 73) % 8999))}`,
             dockType: item.dock_type,
             parkingConstraint: item.parking_constraint,
             mallOpenTime: item.mall_window ? item.mall_window.split('-')[0] : null,

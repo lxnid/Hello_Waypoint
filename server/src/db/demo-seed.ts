@@ -69,6 +69,7 @@ export async function seedDemoWorkflow(db: Database) {
         districtId: 'Colombo',
       })
       .returning();
+    let stopSequence = 0;
     for (const [position, product] of catalog.entries()) {
       const [order] = await tx
         .insert(s.orders)
@@ -129,7 +130,7 @@ export async function seedDemoWorkflow(db: Database) {
           tripId: trip!.id,
           planOrderId: decision!.id,
           orderId: order!.id,
-          sequence: 0,
+          sequence: stopSequence++,
           plannedDepartAt: new Date('2026-03-30T00:00:00Z'),
           plannedTravelMinutes: '24',
           plannedArrivalAt: new Date('2026-03-30T00:24:00Z'),
