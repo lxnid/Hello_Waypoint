@@ -4,6 +4,7 @@
   --font-sans: 'Google Sans Flex', 'Google Sans', 'Helvetica Neue', Arial, sans-serif;
 
   --color-primary: #111111;
+  --color-foreground: #111111;
   --color-surface: #f7f7f7;
   --color-surface-raised: #ffffff;
   --color-border: #d9d9d9;
@@ -17,6 +18,54 @@
 
   --radius-card: 20px;
   --radius-control: 16px;
+}
+
+@layer components {
+  .planning-checkbox {
+    appearance: none;
+    width: 22px;
+    height: 22px;
+    flex-shrink: 0;
+    border: 2px solid var(--color-muted);
+    border-radius: 50%;
+  }
+
+  .planning-checkbox:checked,
+  .planning-checkbox-selected {
+    background: var(--color-muted);
+    box-shadow: inset 0 0 0 3px var(--color-surface);
+  }
+
+  .planning-checkbox:disabled {
+    opacity: 0.4;
+  }
+
+  .planning-checkbox:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 3px;
+  }
+
+  .planning-progress {
+    appearance: none;
+    overflow: hidden;
+    border: 0;
+    border-radius: 999px;
+    background: var(--color-disabled);
+  }
+
+  .planning-progress::-webkit-progress-bar {
+    background: var(--color-disabled);
+  }
+
+  .planning-progress::-webkit-progress-value {
+    border-radius: 999px;
+    background: var(--color-primary);
+  }
+
+  .planning-progress::-moz-progress-bar {
+    border-radius: 999px;
+    background: var(--color-primary);
+  }
 }
 
 @layer base {
@@ -36,10 +85,10 @@
 
   a,
   button,
-  [role="button"],
-  [type="button"],
-  [type="submit"],
-  [type="reset"],
+  [role='button'],
+  [type='button'],
+  [type='submit'],
+  [type='reset'],
   select,
   summary {
     cursor: pointer;
@@ -47,7 +96,7 @@
   }
 
   button:disabled,
-  [aria-disabled="true"],
+  [aria-disabled='true'],
   input:disabled,
   select:disabled {
     cursor: not-allowed;
@@ -60,5 +109,25 @@
 
   p {
     text-wrap: pretty;
+  }
+
+  /* Thin, subtle scrollbars */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(0, 0, 0, 0.2) transparent;
+  }
+  *::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  *::-webkit-scrollbar-thumb {
+    background: rgba(0, 0, 0, 0.18);
+    border-radius: 999px;
+  }
+  *::-webkit-scrollbar-thumb:hover {
+    background: rgba(0, 0, 0, 0.35);
   }
 }

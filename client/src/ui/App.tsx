@@ -4,16 +4,24 @@ import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-
 import type { Identity } from '@waypoint/contracts';
 import { ROLE_HOME } from '@waypoint/contracts/roles';
 import { api, ApiError } from '../api';
+import { forgetDriver, loadSession, rememberDriver } from '../offline/session';
 import { SessionLoader } from './components/SessionLoader';
 import { LoginView } from './login/LoginView';
 import { PortalView } from './portal/PortalView';
 
 export function App() {
-  const session = useQuery({ queryKey: ['identity'], queryFn: api.me, retry: false });
+  const session = useQuery({
+    queryKey: ['identity'],
+    queryFn: loadSession,
+    retry: false,
+    networkMode: 'always',
+  });
 
   if (session.isPending) return <SessionLoader />;
 
-  const identity = session.data;
+  const sessionRejected =
+    session.error instanceof ApiError && [401, 403].includes(session.error.status);
+  const identity = sessionRejected ? undefined : session.data;
   return (
     <Routes>
       <Route
@@ -48,6 +56,7 @@ function Login() {
 
     try {
       const identity = await api.login(email.trim(), password);
+      await rememberDriver(identity).catch(() => undefined);
       queryClient.setQueryData(['identity'], identity);
       navigate(ROLE_HOME[identity.user.role], { replace: true });
     } catch (cause) {
@@ -91,7 +100,8 @@ function Portal({ identity }: { identity: Identity }) {
     setLogoutError('');
     setIsLoggingOut(true);
 
-    function finishLogout() {
+    async function finishLogout() {
+      await forgetDriver().catch(() => undefined);
       // Update the observed session before navigating so the login route cannot
       // redirect back to the role workspace with stale cached identity data.
       queryClient.setQueryData(['identity'], null);
@@ -101,10 +111,10 @@ function Portal({ identity }: { identity: Identity }) {
 
     try {
       await api.logout();
-      finishLogout();
+      await finishLogout();
     } catch (cause) {
       if (cause instanceof ApiError && cause.status === 401) {
-        finishLogout();
+        await finishLogout();
         return;
       }
       setLogoutError('We could not sign you out. Please try again.');

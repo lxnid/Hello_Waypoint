@@ -358,6 +358,8 @@ function StoreOrder({
     </div>
   );
 }
+
+type ReceiptCounts = { accepted: number; missing: number; damaged: number; rejected: number };
 function Receipt({
   attempt,
   data,
@@ -369,40 +371,48 @@ function Receipt({
 }) {
   const [temperature, setTemperature] = useState('');
   const [verified, setVerified] = useState(false);
+  const [outcome, setOutcome] = useState(attempt.outcome ?? 'DELIVERED');
+  const [counts, setCounts] = useState<Record<string, ReceiptCounts>>({});
+  const rows = data.aggregate
+    ? [{ id: 'aggregate', name: 'Aggregate consignment', quantity: attempt.delivered_units ?? 0 }]
+    : data.lines.map((line) => ({
+        id: line.id,
+        name: line.name,
+        quantity:
+          attempt.lines?.find((record) => record.order_line_id === line.id)?.delivered_quantity ??
+          0,
+      }));
+  const actual = (row: (typeof rows)[number]) =>
+    counts[row.id] ?? { accepted: row.quantity, missing: 0, damaged: 0, rejected: 0 };
+  const balanced = rows.every(
+    (row) =>
+      Object.values(actual(row)).every((value) => Number.isInteger(value) && value >= 0) &&
+      Object.values(actual(row)).reduce((sum, value) => sum + value, 0) === row.quantity,
+  );
   const receipt = useMutation({
     mutationFn: () =>
       request(
         `/attempts/${attempt.id}/receipt`,
         json({
-          outcome: attempt.outcome,
+          outcome,
           ...(temperature ? { temperatureC: temperature } : {}),
           ...(data.aggregate
             ? {
                 aggregate: {
-                  acceptedUnits: attempt.delivered_units ?? 0,
-                  missingUnits: Math.max(0, data.aggregate.units - (attempt.delivered_units ?? 0)),
-                  damagedUnits: 0,
-                  rejectedUnits: 0,
+                  acceptedUnits: actual(rows[0]!).accepted,
+                  missingUnits: actual(rows[0]!).missing,
+                  damagedUnits: actual(rows[0]!).damaged,
+                  rejectedUnits: actual(rows[0]!).rejected,
                 },
               }
             : {
-                lines: data.lines.map((line) => {
-                  const delivered = attempt.lines?.find(
-                    (record) => record.order_line_id === line.id,
-                  );
-                  return {
-                    orderLineId: line.id,
-                    acceptedQuantity: delivered?.delivered_quantity ?? 0,
-                    missingQuantity: Math.max(
-                      0,
-                      line.quantity -
-                        (delivered?.delivered_quantity ?? 0) -
-                        (delivered?.rejected_quantity ?? 0),
-                    ),
-                    damagedQuantity: 0,
-                    rejectedQuantity: delivered?.rejected_quantity ?? 0,
-                  };
-                }),
+                lines: rows.map((row) => ({
+                  orderLineId: row.id,
+                  acceptedQuantity: actual(row).accepted,
+                  missingQuantity: actual(row).missing,
+                  damagedQuantity: actual(row).damaged,
+                  rejectedQuantity: actual(row).rejected,
+                })),
               }),
         }),
       ),
@@ -419,19 +429,50 @@ function Receipt({
       ) : (
         <>
           <p className="text-sm text-muted">
-            Confirm the driver's recorded quantities below. Report discrepancies before confirming.
+            Account for the quantities reported delivered. Any missing, damaged or rejected units
+            must be included in the total.
           </p>
-          {data.lines.map((line) => (
-            <p key={line.id} className="flex justify-between text-sm">
-              <span>{line.name}</span>
-              <span>
-                {attempt.lines?.find((record) => record.order_line_id === line.id)
-                  ?.delivered_quantity ?? 0}{' '}
-                delivered
-              </span>
-            </p>
+          {rows.map((row) => (
+            <div key={row.id} className="rounded-control border border-border p-4">
+              <p className="mb-3 text-sm font-medium">
+                {row.name} · {row.quantity} reported delivered
+              </p>
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                {(['accepted', 'missing', 'damaged', 'rejected'] as const).map((key) => (
+                  <label className="text-xs capitalize" key={key}>
+                    {key}
+                    <input
+                      className={field}
+                      type="number"
+                      min="0"
+                      max={row.quantity}
+                      step="1"
+                      value={actual(row)[key]}
+                      onChange={(event) => {
+                        setVerified(false);
+                        setCounts({
+                          ...counts,
+                          [row.id]: { ...actual(row), [key]: Number(event.target.value) },
+                        });
+                      }}
+                    />
+                  </label>
+                ))}
+              </div>
+            </div>
           ))}
-          {data.aggregate && <p>{attempt.delivered_units ?? 0} units delivered</p>}
+          <label className="block text-sm">
+            Receipt outcome
+            <select
+              className={field}
+              value={outcome}
+              onChange={(event) => setOutcome(event.target.value)}
+            >
+              {['DELIVERED', 'PARTIAL', 'REJECTED', 'FAILED'].map((value) => (
+                <option key={value}>{value}</option>
+              ))}
+            </select>
+          </label>
           {data.order.temperature_requirement === 'chilled' && (
             <label className="block text-sm">
               Measured receipt temperature (°C)
@@ -444,7 +485,12 @@ function Receipt({
               />
             </label>
           )}
-          <label className="flex items-center gap-3 text-sm">
+          {!balanced && (
+            <p className="text-sm text-amber-800">
+              The four quantities must total the reported delivered quantity for every item.
+            </p>
+          )}
+          <label className="flex gap-3 text-sm">
             <input
               type="checkbox"
               checked={verified}
@@ -462,6 +508,7 @@ function Receipt({
             disabled={
               receipt.isPending ||
               !verified ||
+              !balanced ||
               (data.order.temperature_requirement === 'chilled' && !temperature)
             }
             onClick={() => receipt.mutate()}
@@ -473,6 +520,7 @@ function Receipt({
     </section>
   );
 }
+
 function IssueReport({ data, refresh }: { data: Detail; refresh: () => void }) {
   const [stopId, setStopId] = useState(data.stops[0]?.id ?? '');
   const [type, setType] = useState('DAMAGED');

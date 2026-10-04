@@ -140,7 +140,6 @@ export function LoaderWorkspace({ user }: { user: User }) {
   });
 
   const trips = tripsQuery.data?.items ?? [];
-  const selectedTrip = trips.find((t) => t.id === selectedTripId) ?? tripDetailQuery.data?.trip;
 
   // View routing inside Loader
   if (activeStop && selectedTripId) {
@@ -164,6 +163,7 @@ export function LoaderWorkspace({ user }: { user: User }) {
         onOpenStopChecklist={setActiveStop}
         onBack={() => setSelectedTripId(null)}
         isSigning={signManifestMutation.isPending}
+        signError={signManifestMutation.error?.message ?? ''}
         onSignManifest={() => signManifestMutation.mutate(selectedTripId)}
       />
     );
@@ -333,6 +333,7 @@ function LoadDetailsView({
   onBack,
   isSigning,
   onSignManifest,
+  signError,
 }: {
   user: User;
   tripDetail: TripDetail;
@@ -342,8 +343,10 @@ function LoadDetailsView({
   onBack: () => void;
   isSigning: boolean;
   onSignManifest: () => void;
+  signError: string;
 }) {
-  const { trip, stops, manifest } = tripDetail;
+  const { trip, manifest } = tripDetail;
+  const stops = [...tripDetail.stops].reverse();
   const loadId = `LDS-${trip.id.slice(0, 4).toUpperCase()}`;
   const isManifestSigned = manifest?.status === 'COMPLETED';
 
@@ -490,6 +493,11 @@ function LoadDetailsView({
         })}
       </div>
 
+      {signError && (
+        <p role="alert" className="rounded-control bg-red-50 p-4 text-sm text-red-800">
+          {signError}
+        </p>
+      )}
       {/* Action Buttons */}
       <div className="space-y-3 pt-4">
         <button
@@ -544,6 +552,13 @@ function ChecklistReportingView({
   const [reportAction, setReportAction] = useState('Missing items');
   const [reportSaved, setReportSaved] = useState(false);
   const [temperature, setTemperature] = useState('');
+  const [actual, setActual] = useState<Record<string, { loaded: number; damaged: number }>>({});
+  const [aggregateActual, setAggregateActual] = useState<{
+    units: string;
+    weight: string;
+    volume: string;
+  } | null>(null);
+  const [issueQuantity, setIssueQuantity] = useState(1);
 
   // Fetch actual order lines for this stop
   const orderQuery = useQuery({
@@ -560,16 +575,18 @@ function ChecklistReportingView({
           ...(orderQuery.data?.aggregate
             ? {
                 aggregate: {
-                  units: orderQuery.data.aggregate.units,
-                  weightKg: orderQuery.data.aggregate.weight_kg,
-                  volumeM3: orderQuery.data.aggregate.volume_m3,
+                  units: aggregateActual
+                    ? Number(aggregateActual.units)
+                    : orderQuery.data.aggregate.units,
+                  weightKg: aggregateActual?.weight ?? orderQuery.data.aggregate.weight_kg,
+                  volumeM3: aggregateActual?.volume ?? orderQuery.data.aggregate.volume_m3,
                 },
               }
             : {
                 lines: (orderQuery.data?.lines ?? []).map((line) => ({
                   orderLineId: line.id,
-                  loadedQuantity: checkedItems[line.id] ? line.quantity : 0,
-                  damagedQuantity: 0,
+                  loadedQuantity: actual[line.id]?.loaded ?? line.quantity,
+                  damagedQuantity: actual[line.id]?.damaged ?? 0,
                 })),
               }),
           ...(temperature ? { temperatureC: temperature } : {}),
@@ -589,7 +606,7 @@ function ChecklistReportingView({
           stopId: stop.id,
           type: reportAction.includes('Damaged') ? 'DAMAGED' : 'MISSING',
           stage: 'LOADING',
-          affectedQuantity: 1,
+          affectedQuantity: issueQuantity,
           notes: reportMessage,
         }),
       }),
@@ -609,7 +626,7 @@ function ChecklistReportingView({
   async function handleSaveReport(e: React.FormEvent) {
     e.preventDefault();
     if (!reportMessage.trim()) return;
-    await issueMutation.mutateAsync();
+    issueMutation.mutate();
   }
 
   return (
@@ -714,11 +731,103 @@ function ChecklistReportingView({
           />
         </label>
       )}
+      <details className="rounded-card border border-border bg-white p-5">
+        <summary className="text-sm font-medium">Record actual quantities and damage</summary>
+        <div className="mt-4 space-y-3">
+          {lines.map((line) => (
+            <div key={line.id}>
+              <p className="text-sm">
+                {line.name} · {line.quantity} requested
+              </p>
+              <div className="grid grid-cols-2 gap-3">
+                <label className="text-xs">
+                  Loaded
+                  <input
+                    className="mt-2 min-h-11 w-full rounded-control border border-border px-3"
+                    type="number"
+                    min="0"
+                    max={line.quantity}
+                    step="1"
+                    value={actual[line.id]?.loaded ?? line.quantity}
+                    onChange={(event) =>
+                      setActual({
+                        ...actual,
+                        [line.id]: {
+                          loaded: Number(event.target.value),
+                          damaged: actual[line.id]?.damaged ?? 0,
+                        },
+                      })
+                    }
+                  />
+                </label>
+                <label className="text-xs">
+                  Damaged
+                  <input
+                    className="mt-2 min-h-11 w-full rounded-control border border-border px-3"
+                    type="number"
+                    min="0"
+                    max={line.quantity}
+                    step="1"
+                    value={actual[line.id]?.damaged ?? 0}
+                    onChange={(event) =>
+                      setActual({
+                        ...actual,
+                        [line.id]: {
+                          loaded: actual[line.id]?.loaded ?? line.quantity,
+                          damaged: Number(event.target.value),
+                        },
+                      })
+                    }
+                  />
+                </label>
+              </div>
+            </div>
+          ))}
+          {orderQuery.data?.aggregate &&
+            (['units', 'weight', 'volume'] as const).map((key) => (
+              <label className="block text-xs" key={key}>
+                Actual {key}
+                <input
+                  className="mt-2 min-h-11 w-full rounded-control border border-border px-3"
+                  type="number"
+                  min="0"
+                  step={key === 'units' ? '1' : key === 'weight' ? '0.01' : '0.001'}
+                  value={
+                    (aggregateActual ?? {
+                      units: String(orderQuery.data!.aggregate!.units),
+                      weight: orderQuery.data!.aggregate!.weight_kg,
+                      volume: orderQuery.data!.aggregate!.volume_m3,
+                    })[key]
+                  }
+                  onChange={(event) =>
+                    setAggregateActual({
+                      ...(aggregateActual ?? {
+                        units: String(orderQuery.data!.aggregate!.units),
+                        weight: orderQuery.data!.aggregate!.weight_kg,
+                        volume: orderQuery.data!.aggregate!.volume_m3,
+                      }),
+                      [key]: event.target.value,
+                    })
+                  }
+                />
+              </label>
+            ))}
+        </div>
+        <p className="mt-4 text-xs text-muted">
+          Loaded plus damaged units cannot exceed the requested quantity. File a report below for
+          discrepancies.
+        </p>
+      </details>
       {/* Confirm cargo loaded button */}
       <button
         type="button"
         disabled={
           loadMutation.isPending ||
+          lines.some(
+            (line) =>
+              (actual[line.id]?.loaded ?? line.quantity) + (actual[line.id]?.damaged ?? 0) >
+              line.quantity,
+          ) ||
           !orderQuery.data ||
           (orderQuery.data.order.temperature_requirement === 'chilled' && !temperature) ||
           (!orderQuery.data.aggregate && !lines.every((line) => checkedItems[line.id]))
@@ -752,6 +861,18 @@ function ChecklistReportingView({
             />
           </div>
 
+          <label className="block text-sm">
+            Affected units
+            <input
+              className="mt-2 min-h-11 w-full rounded-control border border-border bg-white px-4"
+              type="number"
+              min="1"
+              step="1"
+              required
+              value={issueQuantity}
+              onChange={(event) => setIssueQuantity(Number(event.target.value))}
+            />
+          </label>
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div className="flex items-center gap-3">
               <label htmlFor="report-action" className="text-sm font-medium text-primary">

@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import type { User } from '@waypoint/contracts';
 import { request } from '../../api';
+import { StopMap } from './StopMap';
 import {
   driverRead,
   operations,
@@ -27,6 +28,10 @@ const button =
   'flex min-h-12 w-full items-center justify-center gap-2 rounded-control bg-primary px-5 text-sm font-medium text-white disabled:opacity-40';
 type Line = { id: string; sku: string; name: string; quantity: number };
 type Stop = {
+  address?: string | null;
+  latitude?: string | null;
+  longitude?: string | null;
+  contact?: string | null;
   id: string;
   order_id: string;
   sequence: number;
@@ -36,6 +41,7 @@ type Stop = {
   planned_arrival_at: string;
   window_close_at: string;
   lines: Line[];
+  load_lines?: { order_line_id: string; loaded_quantity: number }[] | null;
   aggregate: { units: number; weight_kg: string; volume_m3: string } | null;
   attempt: { id: string; outcome: string | null; completed_at: string | null } | null;
 };
@@ -65,6 +71,7 @@ const formatDate = (value: string) =>
 export function DriverWorkspace({ user }: { user: User }) {
   const cache = useQueryClient();
   const [online, setOnline] = useState(navigator.onLine);
+  const connectionState = useRef(navigator.onLine);
   const [queue, setQueue] = useState<DriverOperation[]>([]);
   const [tripId, setTripId] = useState('');
   const [stopId, setStopId] = useState('');
@@ -85,15 +92,35 @@ export function DriverWorkspace({ user }: { user: User }) {
     }
   }, [user.id, cache, refreshQueue]);
   useEffect(() => {
-    void refreshQueue();
+    void (async () => {
+      await refreshQueue();
+      if (navigator.onLine && (await operations(user.id)).some((operation) => !operation.applied))
+        await sync();
+    })().catch((error) =>
+      setNotice(error instanceof Error ? error.message : 'Saved actions are unavailable'),
+    );
     const on = () => {
       setOnline(true);
       void sync();
     };
     const off = () => setOnline(false);
+    const connectivity = (event: Event) => {
+      const reachable = (event as CustomEvent<{ reachable: boolean }>).detail.reachable;
+      const wasOnline = connectionState.current;
+      connectionState.current = reachable;
+      setOnline(reachable);
+      if (reachable && !wasOnline)
+        void operations(user.id)
+          .then((items) => {
+            if (items.some((item) => !item.applied)) return sync();
+          })
+          .catch((error) => setNotice(error instanceof Error ? error.message : 'Sync unavailable'));
+    };
+    window.addEventListener('waypoint:connectivity', connectivity);
     window.addEventListener('online', on);
     window.addEventListener('offline', off);
     return () => {
+      window.removeEventListener('waypoint:connectivity', connectivity);
       window.removeEventListener('online', on);
       window.removeEventListener('offline', off);
     };
@@ -102,7 +129,7 @@ export function DriverWorkspace({ user }: { user: User }) {
     queryKey: ['driver', user.id, 'trips'],
     queryFn: () => driverRead<{ items: Trip[] }>(user.id, '/trips?limit=100'),
     networkMode: 'always',
-    refetchInterval: online ? 30000 : false,
+    refetchInterval: 30000,
   });
   const selectedTrip =
     tripId ||
@@ -114,7 +141,7 @@ export function DriverWorkspace({ user }: { user: User }) {
     queryFn: () => driverRead<Detail>(user.id, `/trips/${selectedTrip}`),
     enabled: !!selectedTrip,
     networkMode: 'always',
-    refetchInterval: online ? 30000 : false,
+    refetchInterval: 30000,
   });
   const stop = detail.data?.stops.find((item) => item.id === stopId);
   async function enqueue(operation: DriverOperation) {
@@ -389,6 +416,27 @@ function DeliveryStop({
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   const [signed, setSigned] = useState(false);
+  const [outcome, setOutcome] = useState<'DELIVERED' | 'PARTIAL' | 'REJECTED' | 'FAILED'>(
+    'DELIVERED',
+  );
+  const [actual, setActual] = useState<Record<string, { delivered: number; rejected: number }>>({});
+  const [aggregateUnits, setAggregateUnits] = useState(String(stop.aggregate?.units ?? 0));
+  const [aggregateWeight, setAggregateWeight] = useState(stop.aggregate?.weight_kg ?? '0');
+  const [aggregateVolume, setAggregateVolume] = useState(stop.aggregate?.volume_m3 ?? '0');
+  const quantityFor = (line: Line) => actual[line.id] ?? { delivered: line.quantity, rejected: 0 };
+  const validQuantities = stop.lines.every((line) => {
+    const values = quantityFor(line);
+    const maximum =
+      stop.load_lines?.find((record) => record.order_line_id === line.id)?.loaded_quantity ??
+      line.quantity;
+    return (
+      values.delivered >= 0 &&
+      values.rejected >= 0 &&
+      Number.isInteger(values.delivered) &&
+      Number.isInteger(values.rejected) &&
+      values.delivered + values.rejected <= maximum
+    );
+  });
   const canvas = useRef<HTMLCanvasElement>(null);
   const drawing = useRef(false);
   const arrival = queue.find((item) => item.stopId === stop.id && item.action === 'ARRIVAL');
@@ -409,12 +457,15 @@ function DeliveryStop({
     try {
       if (kind === 'ARRIVAL') await enqueue({ ...envelope(), action: kind });
       else {
-        const proof = await new Promise<Blob>((resolve, reject) =>
-          canvas.current?.toBlob(
-            (blob) => (blob ? resolve(blob) : reject(new Error('Could not save signature.'))),
-            'image/png',
-          ),
-        );
+        const proof =
+          outcome === 'FAILED'
+            ? undefined
+            : await new Promise<Blob>((resolve, reject) =>
+                canvas.current?.toBlob(
+                  (blob) => (blob ? resolve(blob) : reject(new Error('Could not save signature.'))),
+                  'image/png',
+                ),
+              );
         const proofId = crypto.randomUUID();
         const base = envelope();
         const attemptId = stop.attempt?.id ?? arrival?.attemptId;
@@ -422,25 +473,36 @@ function DeliveryStop({
           ...base,
           action: kind,
           ...(attemptId ? { attemptId } : {}),
-          proof,
-          proofId,
+          ...(proof ? { proof, proofId } : {}),
           payload: {
-            outcome: 'DELIVERED',
+            outcome,
             completedAt: base.capturedAt,
-            receiverName: receiver.trim(),
-            proofIds: [proofId],
+            ...(receiver.trim() ? { receiverName: receiver.trim() } : {}),
+            proofIds: proof ? [proofId] : [],
             ...(temperature ? { temperatureC: temperature } : {}),
             ...(stop.aggregate
               ? {
-                  deliveredUnits: stop.aggregate.units,
-                  deliveredWeightKg: stop.aggregate.weight_kg,
-                  deliveredVolumeM3: stop.aggregate.volume_m3,
+                  deliveredUnits:
+                    outcome === 'FAILED' || outcome === 'REJECTED' ? 0 : Number(aggregateUnits),
+                  deliveredWeightKg:
+                    outcome === 'FAILED' || outcome === 'REJECTED' ? '0' : aggregateWeight,
+                  deliveredVolumeM3:
+                    outcome === 'FAILED' || outcome === 'REJECTED' ? '0' : aggregateVolume,
                 }
               : {
                   lines: stop.lines.map((line) => ({
                     orderLineId: line.id,
-                    deliveredQuantity: line.quantity,
-                    rejectedQuantity: 0,
+                    deliveredQuantity:
+                      outcome === 'FAILED' || outcome === 'REJECTED'
+                        ? 0
+                        : quantityFor(line).delivered,
+                    rejectedQuantity:
+                      outcome === 'FAILED'
+                        ? 0
+                        : outcome === 'REJECTED'
+                          ? (stop.load_lines?.find((record) => record.order_line_id === line.id)
+                              ?.loaded_quantity ?? line.quantity)
+                          : quantityFor(line).rejected,
                   })),
                 }),
           },
@@ -465,10 +527,17 @@ function DeliveryStop({
           Planned arrival {formatDate(stop.planned_arrival_at)}
         </p>
         <p className="text-sm text-muted">Window closes {formatDate(stop.window_close_at)}</p>
-        <p className="mt-4 text-xs text-muted">
-          Exact outlet location has not been recorded. Confirm the destination with dispatch before
-          navigating.
-        </p>
+        <div className="mt-4">
+          <StopMap location={stop} online={navigator.onLine} />
+        </div>
+        {stop.contact && (
+          <a
+            className="mt-4 block text-sm underline"
+            href={`tel:${stop.contact.replace(/[^+0-9]/g, '')}`}
+          >
+            Call store · {stop.contact}
+          </a>
+        )}
       </div>
       <h2 className="font-semibold">
         {stop.public_reference} · {stop.temperature_requirement}
@@ -502,6 +571,19 @@ function DeliveryStop({
         </button>
       ) : (
         <>
+          <label className="block text-sm">
+            Delivery outcome
+            <select
+              className={field}
+              value={outcome}
+              onChange={(event) => setOutcome(event.target.value as typeof outcome)}
+            >
+              <option value="DELIVERED">Full delivery</option>
+              <option value="PARTIAL">Partial delivery</option>
+              <option value="REJECTED">Receiver rejected goods</option>
+              <option value="FAILED">Delivery failed</option>
+            </select>
+          </label>
           <div className="space-y-3">
             {stop.lines.map((line) => (
               <label key={line.id} className={`${panel} flex items-center gap-3`}>
@@ -530,6 +612,102 @@ function DeliveryStop({
               </label>
             )}
           </div>
+          {outcome === 'PARTIAL' && (
+            <div className="space-y-3">
+              {stop.lines.map((line) => (
+                <div key={line.id} className={panel}>
+                  <p className="text-sm font-medium">{line.name}</p>
+                  <div className="mt-3 grid grid-cols-2 gap-3">
+                    <label className="text-xs">
+                      Delivered
+                      <input
+                        className={field}
+                        min="0"
+                        max={line.quantity}
+                        type="number"
+                        step="1"
+                        value={quantityFor(line).delivered}
+                        onChange={(event) =>
+                          setActual({
+                            ...actual,
+                            [line.id]: {
+                              ...quantityFor(line),
+                              delivered: Number(event.target.value),
+                            },
+                          })
+                        }
+                      />
+                    </label>
+                    <label className="text-xs">
+                      Rejected
+                      <input
+                        className={field}
+                        min="0"
+                        max={line.quantity}
+                        type="number"
+                        step="1"
+                        value={quantityFor(line).rejected}
+                        onChange={(event) =>
+                          setActual({
+                            ...actual,
+                            [line.id]: {
+                              ...quantityFor(line),
+                              rejected: Number(event.target.value),
+                            },
+                          })
+                        }
+                      />
+                    </label>
+                  </div>
+                </div>
+              ))}
+              {stop.aggregate && (
+                <div className={panel}>
+                  <label className="block text-xs">
+                    Delivered units
+                    <input
+                      className={field}
+                      min="0"
+                      max={stop.aggregate.units}
+                      type="number"
+                      step="1"
+                      value={aggregateUnits}
+                      onChange={(event) => setAggregateUnits(event.target.value)}
+                    />
+                  </label>
+                  <label className="block text-xs">
+                    Delivered weight (kg)
+                    <input
+                      className={field}
+                      min="0"
+                      max={stop.aggregate.weight_kg}
+                      type="number"
+                      step="0.01"
+                      value={aggregateWeight}
+                      onChange={(event) => setAggregateWeight(event.target.value)}
+                    />
+                  </label>
+                  <label className="block text-xs">
+                    Delivered volume (m³)
+                    <input
+                      className={field}
+                      min="0"
+                      max={stop.aggregate.volume_m3}
+                      type="number"
+                      step="0.001"
+                      value={aggregateVolume}
+                      onChange={(event) => setAggregateVolume(event.target.value)}
+                    />
+                  </label>
+                </div>
+              )}
+              {!validQuantities && (
+                <p className="text-sm text-red-800">
+                  Delivered and rejected quantities must fit the recorded load.
+                </p>
+              )}
+            </div>
+          )}
           <label className="block text-sm">
             Receiver name
             <input
@@ -605,14 +783,17 @@ function DeliveryStop({
             disabled={
               saving ||
               busy ||
-              !signed ||
-              !receiver.trim() ||
+              (outcome !== 'FAILED' && (!signed || !receiver.trim())) ||
+              (outcome === 'PARTIAL' && !validQuantities) ||
               (stop.temperature_requirement === 'chilled' && !temperature) ||
-              (stop.aggregate ? !checked.aggregate : !stop.lines.every((line) => checked[line.id]))
+              (outcome !== 'FAILED' &&
+                (stop.aggregate
+                  ? !checked.aggregate
+                  : !stop.lines.every((line) => checked[line.id])))
             }
             onClick={() => void act('DELIVERY')}
           >
-            {saving ? 'Saving…' : 'Confirm full delivery'}
+            {saving ? 'Saving…' : `Confirm ${outcome.toLowerCase()} outcome`}
           </button>
         </>
       )}

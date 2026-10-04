@@ -22,6 +22,8 @@ import {
   replacePlan,
   generatePlan,
   setAvailability,
+  tripCandidates,
+  editTripOrder,
 } from './planning-commands.js';
 import { releasePlan } from './planning.js';
 import {
@@ -366,6 +368,37 @@ export const workflowRoutes: FastifyPluginAsync = async (app) => {
     C.PlanEditResultSchema,
     (a, id, b) => generatePlan(app.db, a, id, b.version),
     'Runs automated allocation engine adhering to Rules 1-7, capacity limits, and time budgets',
+  );
+  command(
+    'POST',
+    '/planning/plans/:id/stage',
+    'DISPATCHER',
+    'Stage selected orders or record explicit deferrals',
+    C.StageOrdersSchema,
+    C.PlanEditResultSchema,
+    (a, id, b) =>
+      generatePlan(app.db, a, id, b.version, {
+        orderIds: b.orderIds,
+        deferrals: b.deferrals,
+        acknowledgeDeferral: b.acknowledgeDeferral,
+      }),
+    'Allocates selected staged orders under Rules 1-7 while preserving previous decisions; infeasible orders remain unassigned',
+  );
+  read(
+    '/planning/trips/:id/candidates',
+    'Check orders eligible for manual trip addition',
+    C.TripCandidatesSchema,
+    (a, id) => tripCandidates(app.db, a, id),
+    'DISPATCHER',
+  );
+  command(
+    'POST',
+    '/planning/plans/:id/trip-orders',
+    'DISPATCHER',
+    'Add or remove an order from a draft trip',
+    C.TripOrderEditSchema,
+    C.PlanEditResultSchema,
+    (a, id, b) => editTripOrder(app.db, a, id, b),
   );
   command(
     'POST',

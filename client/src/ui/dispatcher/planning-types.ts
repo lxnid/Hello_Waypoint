@@ -9,6 +9,9 @@ export type Vehicle = {
   status?: string;
 };
 export type Store = {
+  address?: string | null;
+  latitude?: string | null;
+  longitude?: string | null;
   id: string;
   name: string | null;
   brand_id: string;
@@ -23,6 +26,8 @@ export type Store = {
 };
 export type Reference = { stores: Store[]; vehicles: Vehicle[]; operatingDates: string[] };
 export type Priority = {
+  weightKg: string | null;
+  volumeM3: string | null;
   orderId: string;
   publicReference: string;
   outletId: string;
@@ -31,6 +36,7 @@ export type Priority = {
   temperatureRequirement: string;
   daysSinceLastServed: number | null;
   requiresOverride: boolean;
+  deferredPreviousRun?: boolean;
   historyStatus: string;
 };
 export type Plan = {
@@ -48,7 +54,7 @@ export type Decision = {
   rationale: string | null;
   next_eligible_date: string | null;
   requires_override?: boolean;
-  override_acknowledged_by?: string | null;
+  override_acknowledged?: boolean;
 };
 export type Stop = {
   id: string;
@@ -66,6 +72,8 @@ export type Trip = {
   trip_number: number;
   status: string;
   manifest_status?: string;
+  loader_name?: string | null;
+  inspection_recorded?: boolean;
   stops: Stop[];
   operating_date?: string;
 };

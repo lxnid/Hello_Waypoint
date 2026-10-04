@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { and, eq, sql } from 'drizzle-orm';
 import type { Database } from '../../db/client.js';
 import { attachments } from '../../db/schema.js';
@@ -11,7 +12,11 @@ export type Owner = {
   ownerId: string;
   kind: 'PHOTO' | 'SIGNATURE';
 };
-const root = () => process.env.PROOF_STORAGE_PATH ?? '/var/lib/waypoint/proofs';
+const root = () =>
+  process.env.PROOF_STORAGE_PATH ??
+  (process.env.NODE_ENV === 'production'
+    ? '/var/lib/waypoint/proofs'
+    : fileURLToPath(new URL('../../../../.data/proofs/', import.meta.url)));
 async function ownerScope(tx: Transaction, userId: string, owner: Owner, write: boolean) {
   const user = await actor(tx, userId);
   let identity: { order_id: string; trip_id: string; sealed: boolean } | undefined;

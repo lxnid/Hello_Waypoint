@@ -28,6 +28,7 @@ export type Order = {
   order_size?: number;
   requested_date: string;
   eligible_date: string;
+  latest_decision?: string;
   deferred?: boolean;
   days_since_last_served?: number | null;
   last_served_date?: string | null;
@@ -142,19 +143,21 @@ export function OrdersWorkspace({ user, deferred }: { user: User; deferred: bool
   });
   if (orderId)
     return (
-      <OrderDetails
-        user={user}
-        id={orderId}
-        back={() => navigate(`/dispatcher/${deferred ? 'deferred' : 'orders'}`)}
-      />
+      <div className="flex-1 min-h-0 h-full overflow-y-auto p-2">
+        <OrderDetails
+          user={user}
+          id={orderId}
+          back={() => navigate(`/dispatcher/${deferred ? 'deferred' : 'orders'}`)}
+        />
+      </div>
     );
   const rows = orders.data?.pages.flatMap((page) => page.items) ?? [];
   const first = orders.data?.pages[0];
   const setFilter = (key: keyof typeof filters, value: string) =>
     setFilters((current) => ({ ...current, [key]: value }));
   return (
-    <div className="flex items-start gap-5 xl:gap-8">
-      <section className="min-w-0 flex-1" aria-label={deferred ? 'Deferred orders' : 'Live orders'}>
+    <div className="flex h-full min-h-0 items-stretch gap-5 xl:gap-8 overflow-hidden">
+      <section className="min-w-0 flex-1 h-full overflow-y-auto p-2" aria-label={deferred ? 'Deferred orders' : 'Live orders'}>
         <div className="mb-5 flex items-center justify-between gap-3 md:hidden">
           <h1 className="text-xl font-semibold">{deferred ? 'Deferred Orders' : 'Live Orders'}</h1>
           <button
@@ -165,15 +168,6 @@ export function OrdersWorkspace({ user, deferred }: { user: User; deferred: bool
             <PanelRightOpen size={20} />
           </button>
         </div>
-        {deferred && (
-          <div className="mb-5 flex items-center gap-3 rounded-control border border-border bg-white p-4 text-sm">
-            <ShieldAlert size={20} className="shrink-0" />
-            <p>
-              Orders deferred by their latest released plan. Review service history before deferring
-              again.
-            </p>
-          </div>
-        )}
         <div className="flex flex-wrap items-center gap-3">
           <span className="text-sm font-medium text-muted shrink-0">Filter by</span>
           <div className="grid flex-1 grid-cols-2 items-center gap-3 lg:grid-cols-4">
@@ -264,6 +258,15 @@ export function OrdersWorkspace({ user, deferred }: { user: User; deferred: bool
             </div>
           </div>
         </div>
+        {deferred && (
+          <div className="mt-5 flex items-center gap-3 rounded-control border border-border bg-white p-4 text-sm">
+            <ShieldAlert size={20} className="shrink-0" />
+            <p>
+              Orders deferred by their latest released plan. Review service history before deferring
+              again.
+            </p>
+          </div>
+        )}
         <div className="relative my-5">
           <Search
             size={18}
@@ -310,7 +313,8 @@ export function OrdersWorkspace({ user, deferred }: { user: User; deferred: bool
               >
                 <span className="text-sm font-semibold">{order.public_reference}</span>
                 <span className="row-start-2 text-sm font-medium lg:row-auto">
-                  {order.outlet_name ?? `${order.district_name ?? ''} · ${order.brand_name ?? ''} · ${order.outlet_id}`}
+                  {order.outlet_name ??
+                    `${order.district_name ?? ''} · ${order.brand_name ?? ''} · ${order.outlet_id}`}
                   {order.days_since_last_served != null && order.days_since_last_served >= 2 && (
                     <span className="mt-1 block text-xs text-amber-800">
                       {order.days_since_last_served} days unserved
@@ -319,12 +323,25 @@ export function OrdersWorkspace({ user, deferred }: { user: User; deferred: bool
                   )}
                 </span>
                 <span className="col-start-2 row-start-1 lg:col-auto lg:row-auto">
-                  <CategoryBadge value={order.temperature_requirement} />
+                  <CategoryBadge
+                    value={
+                      order.brand_name?.includes('Style')
+                        ? 'Textile'
+                        : order.brand_name?.includes('Tech')
+                          ? 'Fragile'
+                          : order.temperature_requirement
+                    }
+                  />
                 </span>
                 <span className="text-xs text-muted">{order.order_size ?? '—'} items</span>
                 <span className="text-right text-xs text-muted">
-                  {humanize(order.status)}
-                  {order.deferred && ' · Deferred'}
+                  {order.status === 'SUBMITTED'
+                    ? order.deferred
+                      ? 'Deferred'
+                      : order.latest_decision === 'ALLOCATED'
+                        ? 'Assigned'
+                        : 'Unassigned'
+                    : humanize(order.status)}
                 </span>
               </button>
             ))}
@@ -353,7 +370,7 @@ export function OrdersWorkspace({ user, deferred }: { user: User; deferred: bool
         </div>
       </section>
       <aside
-        className={`${summaryOpen ? 'w-60 2xl:w-72 p-5' : 'w-14 p-2.5'} sticky top-5 hidden min-h-[calc(100dvh-116px)] shrink-0 flex-col rounded-card border border-border bg-white/20 transition-[width,padding] xl:flex`}
+        className={`${summaryOpen ? 'w-60 2xl:w-72 p-5' : 'w-14 p-2.5'} hidden h-full shrink-0 flex-col rounded-card border border-border bg-white/20 transition-[width,padding] xl:flex overflow-y-auto`}
       >
         {summaryOpen ? (
           <>
@@ -444,13 +461,21 @@ function OrderDetails({ user, id, back }: { user: User; id: string; back: () => 
   const meta = (key: string) => (outlet?.[key] == null ? '—' : String(outlet[key]));
   return (
     <div>
-      <button
-        onClick={back}
-        className="mb-5 flex min-h-11 items-center gap-2 rounded-control px-3 hover:bg-white"
-      >
-        <ArrowLeft size={20} />
-        Back to orders
-      </button>
+      <div className="sticky top-0 z-20 -mt-1 mb-4 bg-surface pb-5 pt-1">
+        <button
+          onClick={back}
+          className="mb-2 flex min-h-11 items-center gap-2 rounded-control px-3 hover:bg-white"
+        >
+          <ArrowLeft size={20} />
+          Back to orders
+        </button>
+        {data && (
+          <header className="flex flex-wrap items-center justify-between gap-3 px-3">
+            <h1 className="text-xl font-semibold">{data.order.public_reference}</h1>
+            <span className="text-sm text-muted">{humanize(data.order.status)}</span>
+          </header>
+        )}
+      </div>
       <ErrorNotice error={query.error} retry={() => void query.refetch()} />
       {query.isPending && (
         <p role="status" className="p-8 text-muted">
@@ -460,10 +485,6 @@ function OrderDetails({ user, id, back }: { user: User; id: string; back: () => 
       {data && (
         <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_300px]">
           <section>
-            <header className="mb-5 flex flex-wrap items-center justify-between gap-3">
-              <h1 className="text-xl font-semibold">{data.order.public_reference}</h1>
-              <span className="text-sm text-muted">{humanize(data.order.status)}</span>
-            </header>
             <div className="min-h-[65dvh] rounded-card border border-border p-5 sm:p-8">
               <div className="mb-4 hidden grid-cols-[1fr_2fr_1fr_1fr] gap-4 px-5 text-xs text-muted md:grid">
                 <span>Item ID</span>
@@ -546,12 +567,25 @@ function OrderDetails({ user, id, back }: { user: User; id: string; back: () => 
             </div>
             <dl className="space-y-5 text-sm">
               {[
-                ['Store', meta('name')],
+                [
+                  'Store',
+                  outlet?.name
+                    ? meta('name')
+                    : `${meta('district_name')} · ${meta('brand_name')} · ${data.order.outlet_id}`,
+                ],
                 ['Requested date', data.order.requested_date],
                 ['Eligible date', data.order.eligible_date],
                 ['Delivery window', `${meta('window_open_time')} – ${meta('window_close_time')}`],
-                ['Dock type', meta('dock_type')],
-                ['Parking', meta('parking_constraint')],
+                [
+                  'Estimated weight',
+                  `${(data.aggregate ? Number(data.aggregate.weight_kg) : data.lines.reduce((sum, line) => sum + line.quantity * Number(line.unit_weight_kg ?? 0), 0)).toFixed(2)} kg`,
+                ],
+                [
+                  'Estimated volume',
+                  `${(data.aggregate ? Number(data.aggregate.volume_m3) : data.lines.reduce((sum, line) => sum + line.quantity * Number(line.unit_volume_m3 ?? 0), 0)).toFixed(3)} m³`,
+                ],
+                ['Dock type', humanize(meta('dock_type'))],
+                ['Parking', humanize(meta('parking_constraint'))],
               ].map(([label, value]) => (
                 <div key={label} className="flex justify-between gap-4">
                   <dt className="shrink-0 text-muted">{label}</dt>
@@ -565,6 +599,47 @@ function OrderDetails({ user, id, back }: { user: User; id: string; back: () => 
                 </dd>
               </div>
             </dl>
+            <ol
+              aria-label="Order progress"
+              className="mt-10 flex border-t border-border pt-5 text-[11px]"
+            >
+              {[
+                { label: 'Received', done: data.order.status !== 'DRAFT' },
+                {
+                  label: 'Processing',
+                  done: data.decisions.some(
+                    (decision) =>
+                      decision.decision === 'ALLOCATED' && decision.plan_status !== 'DRAFT',
+                  ),
+                },
+                {
+                  label: 'Dispatched',
+                  done: data.stops.some((stop) => stop.trip_status !== 'PLANNED'),
+                },
+                {
+                  label: 'Delivered',
+                  done: data.attempts.some(
+                    (attempt) =>
+                      attempt.completed_at &&
+                      (attempt.outcome === 'DELIVERED' || attempt.outcome === 'PARTIAL'),
+                  ),
+                },
+              ].map((stage, index) => (
+                <li key={stage.label} className="relative flex flex-1 flex-col items-center gap-2">
+                  {index > 0 && (
+                    <span
+                      aria-hidden="true"
+                      className={`absolute right-1/2 top-[5px] h-0.5 w-full ${stage.done ? 'bg-primary' : 'bg-border'}`}
+                    />
+                  )}
+                  <span
+                    className={`relative z-10 h-3 w-3 rounded-full ${stage.done ? 'bg-primary' : 'bg-border'}`}
+                    aria-label={stage.done ? 'Completed' : 'Pending'}
+                  />
+                  {stage.label}
+                </li>
+              ))}
+            </ol>
             <h3 className="mt-10 text-sm font-semibold">Activity</h3>
             <div className="mt-4 flex items-center gap-2 text-xs text-muted">
               <PackageOpen size={18} />

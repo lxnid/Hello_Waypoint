@@ -47,6 +47,28 @@ export const PlanEditSchema = object({
   deferrals: Type.Array(DeferInputSchema),
 });
 export const GenerateSchema = object({ version: Type.Integer({ minimum: 1 }) });
+export const StageOrdersSchema = object({
+  version: Type.Integer({ minimum: 1 }),
+  orderIds: Type.Array(uuid(), { uniqueItems: true }),
+  deferrals: Type.Array(DeferInputSchema),
+  acknowledgeDeferral: Type.Optional(Type.Boolean()),
+});
+export const TripOrderEditSchema = object({
+  version: Type.Integer({ minimum: 1 }),
+  tripId: uuid(),
+  orderId: uuid(),
+  action: Type.Union([Type.Literal('ADD'), Type.Literal('REMOVE')]),
+});
+export const TripCandidatesSchema = object({
+  version: Type.Integer({ minimum: 1 }),
+  items: Type.Array(
+    object({
+      orderId: uuid(),
+      valid: Type.Boolean(),
+      reason: Type.Union([Type.String(), Type.Null()]),
+    }),
+  ),
+});
 const temperature = Type.Optional(Type.String({ pattern: '^-?\\d+(\\.\\d{1,2})?$' }));
 export const LoadInputSchema = object({
   lines: Type.Optional(

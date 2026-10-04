@@ -11,6 +11,8 @@ export type PriorityContext = {
   scenario: string | null;
 };
 export type OrderPriority = {
+  weightKg: string | null;
+  volumeM3: string | null;
   orderId: string;
   publicReference: string;
   outletId: string;
@@ -39,12 +41,17 @@ export async function calculateOrderPriorities(
   const rows = await db.execute<OrderPriority>(sql`
     WITH targets AS MATERIALIZED (
       SELECT o.id,o.public_reference,o.outlet_id,o.temperature_requirement,ot.brand_id,ot.district_id,
-        src.deferred_yesterday,src.days_since_last_served
+        src.deferred_yesterday,src.days_since_last_served,
+        coalesce(agg.weight_kg,lines.weight)::text AS weight,coalesce(agg.volume_m3,lines.volume)::text AS volume
       FROM orders o JOIN outlets ot ON ot.id=o.outlet_id JOIN districts d ON d.id=ot.district_id
       LEFT JOIN order_sources src ON src.order_id=o.id
+      LEFT JOIN order_aggregates agg ON agg.order_id=o.id
+      LEFT JOIN LATERAL (SELECT sum(quantity*unit_weight_kg) AS weight,sum(quantity*unit_volume_m3) AS volume FROM order_lines WHERE order_id=o.id) lines ON true
       WHERE d.depot_id=${depotId}
         AND (${planId ?? null}::uuid IS NOT NULL AND EXISTS (SELECT 1 FROM plan_orders po WHERE po.plan_id=${planId ?? null}::uuid AND po.order_id=o.id)
-          OR ${planId ?? null}::uuid IS NULL AND o.status='SUBMITTED' AND o.eligible_date<=${context.operating_date}::date)
+          OR ${planId ?? null}::uuid IS NULL AND (
+            o.status='SUBMITTED' AND o.eligible_date<=${context.operating_date}::date
+            OR EXISTS (SELECT 1 FROM plan_orders po JOIN plans p ON p.id=po.plan_id WHERE po.order_id=o.id AND p.context_id=${context.id})))
         AND ((${context.kind}='LIVE' AND (src.scenario IS NULL OR src.scenario=''))
           OR (${context.kind}='SCENARIO' AND src.batch_id=${context.batch_id}::uuid AND src.scenario=${context.scenario}))
     ), previous_run AS (
@@ -77,6 +84,7 @@ export async function calculateOrderPriorities(
       LEFT JOIN temperature_service ts ON ts.outlet_id=target.outlet_id AND ts.temperature_requirement=target.temperature_requirement
     )
     SELECT id AS "orderId",public_reference AS "publicReference",outlet_id AS "outletId",brand_id AS brand,district_id AS district,
+      weight AS "weightKg",volume AS "volumeM3",
       temperature_requirement AS "temperatureRequirement",${context.kind}::text AS source,${context.operating_date}::text AS "asOfDate",
       previous_date::text AS "previousOperatingDate",last_date::text AS "lastServedDate",elapsed_days AS "daysSinceLastServed",
       temperature_last_date::text AS "temperatureLastServedDate",temperature_elapsed_days AS "temperatureDaysSinceLastServed",

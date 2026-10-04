@@ -148,7 +148,7 @@ export async function tripDetail(db: Database, userId: string, id: string) {
   );
   if (!trip) throw new WorkflowError('Trip not found', 404);
   const stops = await db.execute(
-    sql`SELECT s.*,o.public_reference,o.format,o.temperature_requirement,ot.name AS outlet_name,coalesce((SELECT jsonb_agg(to_jsonb(l) ORDER BY l.line_number) FROM order_lines l WHERE l.order_id=o.id),'[]') AS lines,(SELECT to_jsonb(a) FROM order_aggregates a WHERE a.order_id=o.id) AS aggregate,(SELECT to_jsonb(l) FROM load_records l WHERE l.stop_id=s.id) AS load,(SELECT jsonb_agg(to_jsonb(l)) FROM load_line_records l WHERE l.stop_id=s.id) AS load_lines,(SELECT to_jsonb(a) FROM delivery_attempts a WHERE a.stop_id=s.id) AS attempt FROM trip_stops s JOIN orders o ON o.id=s.order_id JOIN outlets ot ON ot.id=o.outlet_id WHERE s.trip_id=${id} ORDER BY s.sequence`,
+    sql`SELECT s.*,o.public_reference,o.format,o.temperature_requirement,ot.name AS outlet_name,ot.address,ot.latitude::text,ot.longitude::text,ot.contact,coalesce((SELECT jsonb_agg(to_jsonb(l) ORDER BY l.line_number) FROM order_lines l WHERE l.order_id=o.id),'[]') AS lines,(SELECT to_jsonb(a) FROM order_aggregates a WHERE a.order_id=o.id) AS aggregate,(SELECT to_jsonb(l) FROM load_records l WHERE l.stop_id=s.id) AS load,(SELECT jsonb_agg(to_jsonb(l)) FROM load_line_records l WHERE l.stop_id=s.id) AS load_lines,(SELECT to_jsonb(a) FROM delivery_attempts a WHERE a.stop_id=s.id) AS attempt FROM trip_stops s JOIN orders o ON o.id=s.order_id JOIN outlets ot ON ot.id=o.outlet_id WHERE s.trip_id=${id} ORDER BY s.sequence`,
   );
   const [manifest] = await db.execute(sql`SELECT * FROM load_manifests WHERE trip_id=${id}`);
   const [inspection] = await db.execute(sql`SELECT * FROM trip_inspections WHERE trip_id=${id}`);
@@ -174,7 +174,11 @@ export async function planningRead(db: Database, userId: string, planId: string)
     sql`SELECT * FROM plan_orders WHERE plan_id=${planId} ORDER BY order_id`,
   );
   const trips = await db.execute(
-    sql`SELECT t.*,coalesce((SELECT jsonb_agg(to_jsonb(s) ORDER BY sequence) FROM trip_stops s WHERE s.trip_id=t.id),'[]') AS stops FROM trips t WHERE plan_id=${planId} ORDER BY vehicle_id,trip_number`,
+    sql`SELECT t.*,m.status AS manifest_status,u.display_name AS loader_name,
+      EXISTS(SELECT 1 FROM trip_inspections i WHERE i.trip_id=t.id) AS inspection_recorded,
+      coalesce((SELECT jsonb_agg(to_jsonb(s) ORDER BY sequence) FROM trip_stops s WHERE s.trip_id=t.id),'[]') AS stops
+      FROM trips t LEFT JOIN load_manifests m ON m.trip_id=t.id LEFT JOIN users u ON u.id=m.signed_by
+      WHERE t.plan_id=${planId} ORDER BY t.vehicle_id,t.trip_number`,
   );
   return { plan, decisions: [...decisions], trips: [...trips] };
 }

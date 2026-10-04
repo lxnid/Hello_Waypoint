@@ -20,6 +20,7 @@ import { getSession } from './modules/auth/service.js';
 import { authRoutes } from './modules/auth/routes.js';
 import { dispatchReferenceRoutes } from './modules/operations/dispatch-reference.js';
 import { workflowRoutes } from './modules/operations/api.js';
+import { managementRoutes } from './modules/operations/management-routes.js';
 import { planningRoutes } from './modules/operations/routes.js';
 import { portalRoutes } from './modules/portal/routes.js';
 
@@ -171,7 +172,12 @@ export async function buildApp(config: Config, db: Database): Promise<FastifyIns
     // Same-origin writes protect cookie sessions against cross-site form submissions.
     if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(request.method)) {
       const origin = request.headers.origin;
-      if (origin && origin !== config.appOrigin)
+      const isAllowedOrigin =
+        !origin ||
+        origin === config.appOrigin ||
+        (config.nodeEnv === 'development' &&
+          (origin.startsWith('http://localhost:') || origin.startsWith('http://127.0.0.1:')));
+      if (!isAllowedOrigin)
         reply.code(403).send({
           code: 'INVALID_ORIGIN',
           message: 'Request origin is not allowed',
@@ -237,6 +243,7 @@ export async function buildApp(config: Config, db: Database): Promise<FastifyIns
   await app.register(planningRoutes, { prefix: '/api/v1/planning' });
   await app.register(workflowRoutes, { prefix: '/api/v1' });
   await app.register(dispatchReferenceRoutes, { prefix: '/api/v1' });
+  await app.register(managementRoutes, { prefix: '/api/v1' });
 
   if (config.serveClient) {
     const root = join(fileURLToPath(new URL('.', import.meta.url)), '../../client/dist');
@@ -249,7 +256,9 @@ export async function buildApp(config: Config, db: Database): Promise<FastifyIns
     app.get('/*', { schema: { hide: true } }, async (request, reply) => {
       const path = request.url.split('?')[0] ?? '';
       const pageRoute =
-        path === '/' || path === '/login' || /^\/(dispatcher|loader|driver|store)(\/|$)/.test(path);
+        path === '/' ||
+        path === '/login' ||
+        /^\/(dispatcher|loader|driver|store|planning|fleet|stores|tracker|issues)(\/|$)/.test(path);
       if (!pageRoute)
         return reply.code(404).send({
           code: 'NOT_FOUND',

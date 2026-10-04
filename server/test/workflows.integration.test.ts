@@ -121,6 +121,281 @@ async function scenario(
   return { order, plan, generated, context };
 }
 suite('operational HTTP workflows', () => {
+  it('validates manual additions, rejects invalid writes atomically, and returns removed orders to staging', () =>
+    isolated(async (tx, app, c) => {
+      const fixture = await scenario(tx, app, c);
+      const catalog = await call(app, c['manager.out001']!, 'GET', '/catalog');
+      const product = catalog.find(
+        (p: { temperature_requirement: string }) => p.temperature_requirement === 'ambient',
+      );
+      async function addOrder(quantity: number, rowPosition: number) {
+        const order = await call(app, c['manager.out001']!, 'POST', '/orders', {
+          requestedDate: '2026-03-30',
+          temperatureRequirement: 'ambient',
+          lines: [{ productId: product.id, quantity }],
+        });
+        await tx
+          .update(s.orders)
+          .set({ status: 'SUBMITTED', submittedAt: new Date('2026-03-28T10:30:00Z') })
+          .where(eq(s.orders.id, order.id));
+        await tx
+          .insert(s.orderSources)
+          .values({
+            orderId: order.id,
+            batchId: fixture.context!.batchId!,
+            scenario: 'HTTP',
+            sourceReference: order.publicReference,
+            rowPosition,
+            sourceContext: {},
+          });
+        return order;
+      }
+      const feasible = await addOrder(2, 1),
+        oversized = await addOrder(100000, 2);
+      let detail = await call(app, c.dispatcher!, 'GET', `/planning/plans/${fixture.plan.id}`);
+      const tripId = detail.trips[0].id;
+      const candidates = await call(
+        app,
+        c.dispatcher!,
+        'GET',
+        `/planning/trips/${tripId}/candidates`,
+      );
+      expect(
+        candidates.items.find((item: { orderId: string }) => item.orderId === feasible.id).valid,
+      ).toBe(true);
+      expect(
+        candidates.items.find((item: { orderId: string }) => item.orderId === oversized.id).valid,
+      ).toBe(false);
+      const invalid = await app.inject({
+        method: 'POST',
+        url: `/api/v1/planning/plans/${fixture.plan.id}/trip-orders`,
+        headers: { cookie: c.dispatcher! },
+        payload: { version: detail.plan.version, tripId, orderId: oversized.id, action: 'ADD' },
+      });
+      expect(invalid.statusCode).toBe(409);
+      const unchanged = await call(app, c.dispatcher!, 'GET', `/planning/plans/${fixture.plan.id}`);
+      expect(unchanged.plan.version).toBe(detail.plan.version);
+      expect(unchanged.trips[0].stops).toHaveLength(1);
+      const added = await call(
+        app,
+        c.dispatcher!,
+        'POST',
+        `/planning/plans/${fixture.plan.id}/trip-orders`,
+        { version: detail.plan.version, tripId, orderId: feasible.id, action: 'ADD' },
+      );
+      detail = await call(app, c.dispatcher!, 'GET', `/planning/plans/${fixture.plan.id}`);
+      expect(detail.trips[0].stops).toHaveLength(2);
+      await call(app, c.dispatcher!, 'POST', `/planning/plans/${fixture.plan.id}/trip-orders`, {
+        version: added.version,
+        tripId: detail.trips[0].id,
+        orderId: fixture.order.id,
+        action: 'REMOVE',
+      });
+      detail = await call(app, c.dispatcher!, 'GET', `/planning/plans/${fixture.plan.id}`);
+      expect(
+        detail.decisions.find((d: { order_id: string }) => d.order_id === fixture.order.id)
+          .decision,
+      ).toBe('UNASSIGNED');
+      expect(detail.trips[0].stops).toHaveLength(1);
+      await call(app, c.dispatcher!, 'POST', `/planning/plans/${fixture.plan.id}/trip-orders`, {
+        version: detail.plan.version,
+        tripId: detail.trips[0].id,
+        orderId: feasible.id,
+        action: 'REMOVE',
+      });
+      detail = await call(app, c.dispatcher!, 'GET', `/planning/plans/${fixture.plan.id}`);
+      expect(detail.trips).toHaveLength(0);
+    }));
+  it('records required deferral approval in the same confirmation transaction', () =>
+    isolated(async (tx, app, c) => {
+      const fixture = await scenario(tx, app, c);
+      await tx
+        .update(s.orderSources)
+        .set({ deferredYesterday: true, daysSinceLastServed: 1 })
+        .where(eq(s.orderSources.orderId, fixture.order.id));
+      const input = {
+        version: fixture.generated.version,
+        orderIds: [],
+        deferrals: [
+          {
+            orderId: fixture.order.id,
+            reasonCode: 'STORE_UNAVAILABLE',
+            rationale: 'Store requested the next operating day',
+            nextEligibleDate: '2026-03-31',
+          },
+        ],
+      };
+      const missing = await app.inject({
+        method: 'POST',
+        url: `/api/v1/planning/plans/${fixture.plan.id}/stage`,
+        headers: { cookie: c.dispatcher! },
+        payload: input,
+      });
+      expect(missing.statusCode).toBe(400);
+      await call(app, c.dispatcher!, 'POST', `/planning/plans/${fixture.plan.id}/stage`, {
+        ...input,
+        acknowledgeDeferral: true,
+      });
+      const detail = await call(app, c.dispatcher!, 'GET', `/planning/plans/${fixture.plan.id}`);
+      expect(detail.decisions[0].override_acknowledged).toBe(true);
+      expect(detail.decisions[0].override_reason).toBe(input.deferrals[0]!.rationale);
+    }));
+  it('stages incrementally, preserves allocations, and requires explicit deferral for infeasible orders', () =>
+    isolated(async (tx, app, c) => {
+      const fixture = await scenario(tx, app, c);
+      const catalog = await call(app, c['manager.out001']!, 'GET', '/catalog');
+      const product = catalog.find(
+        (p: { temperature_requirement: string }) => p.temperature_requirement === 'ambient',
+      );
+      async function addOrder(quantity: number, rowPosition: number) {
+        const order = await call(app, c['manager.out001']!, 'POST', '/orders', {
+          requestedDate: '2026-03-30',
+          temperatureRequirement: 'ambient',
+          lines: [{ productId: product.id, quantity }],
+        });
+        await tx
+          .update(s.orders)
+          .set({ status: 'SUBMITTED', submittedAt: new Date('2026-03-28T10:30:00Z') })
+          .where(eq(s.orders.id, order.id));
+        await tx.insert(s.orderSources).values({
+          orderId: order.id,
+          batchId: fixture.context!.batchId!,
+          scenario: 'HTTP',
+          sourceReference: order.publicReference,
+          rowPosition,
+          sourceContext: {},
+        });
+        return order;
+      }
+      const feasible = await addOrder(2, 1);
+      const oversized = await addOrder(100000, 2);
+      const staged = await call(
+        app,
+        c.dispatcher!,
+        'POST',
+        `/planning/plans/${fixture.plan.id}/stage`,
+        {
+          version: fixture.generated.version,
+          orderIds: [feasible.id],
+          deferrals: [],
+        },
+      );
+      let detail = await call(app, c.dispatcher!, 'GET', `/planning/plans/${fixture.plan.id}`);
+      expect(
+        detail.decisions.find((d: { order_id: string }) => d.order_id === fixture.order.id)
+          .decision,
+      ).toBe('ALLOCATED');
+      expect(
+        detail.decisions.find((d: { order_id: string }) => d.order_id === feasible.id).decision,
+      ).toBe('ALLOCATED');
+      expect(
+        detail.decisions.find((d: { order_id: string }) => d.order_id === oversized.id).decision,
+      ).toBe('UNASSIGNED');
+      const failed = await call(
+        app,
+        c.dispatcher!,
+        'POST',
+        `/planning/plans/${fixture.plan.id}/stage`,
+        {
+          version: staged.version,
+          orderIds: [oversized.id],
+          deferrals: [],
+        },
+      );
+      detail = await call(app, c.dispatcher!, 'GET', `/planning/plans/${fixture.plan.id}`);
+      const unresolved = detail.decisions.find(
+        (d: { order_id: string }) => d.order_id === oversized.id,
+      );
+      expect(unresolved.decision).toBe('UNASSIGNED');
+      expect(unresolved.rationale).toBeTruthy();
+      const release = await app.inject({
+        method: 'POST',
+        url: `/api/v1/planning/plans/${fixture.plan.id}/release`,
+        headers: { cookie: c.dispatcher! },
+        payload: { version: failed.version },
+      });
+      expect(release.statusCode).toBe(409);
+      const deferred = await call(
+        app,
+        c.dispatcher!,
+        'POST',
+        `/planning/plans/${fixture.plan.id}/stage`,
+        {
+          version: failed.version,
+          orderIds: [],
+          deferrals: [
+            {
+              orderId: oversized.id,
+              reasonCode: 'CAPACITY_LIMIT',
+              rationale: 'Selected order exceeds available capacity',
+              nextEligibleDate: '2026-03-31',
+            },
+          ],
+        },
+      );
+      detail = await call(app, c.dispatcher!, 'GET', `/planning/plans/${fixture.plan.id}`);
+      expect(
+        detail.decisions.filter((d: { decision: string }) => d.decision === 'ALLOCATED'),
+      ).toHaveLength(2);
+      expect(
+        detail.decisions.find((d: { order_id: string }) => d.order_id === oversized.id).decision,
+      ).toBe('DEFERRED');
+      await call(app, c.dispatcher!, 'POST', `/planning/plans/${fixture.plan.id}/release`, {
+        version: deferred.version,
+      });
+      const priorities = await call(
+        app,
+        c.dispatcher!,
+        'GET',
+        `/planning/priorities?contextId=${fixture.context!.id}&depot=Peliyagoda`,
+      );
+      expect(priorities.map((order: { orderId: string }) => order.orderId)).toEqual(
+        expect.arrayContaining([fixture.order.id, feasible.id, oversized.id]),
+      );
+    }));
+  it('preserves unchanged deferral acknowledgment and invalidates it when rationale changes', () =>
+    isolated(async (tx, app, c) => {
+      const fixture = await scenario(tx, app, c);
+      const deferral = {
+        orderId: fixture.order.id,
+        reasonCode: 'CAPACITY',
+        rationale: 'Capacity exhausted',
+        nextEligibleDate: '2026-03-31',
+      };
+      const saved = await call(app, c.dispatcher!, 'PUT', `/planning/plans/${fixture.plan.id}`, {
+        version: fixture.generated.version,
+        trips: [],
+        deferrals: [deferral],
+      });
+      const before = await call(app, c.dispatcher!, 'GET', `/planning/plans/${fixture.plan.id}`);
+      const decisionId = before.decisions[0].id;
+      const acknowledgment = await call(
+        app,
+        c.dispatcher!,
+        'POST',
+        `/planning/decisions/${decisionId}/override`,
+        { version: saved.version, reason: 'Explicitly approved for this deferral' },
+      );
+      const unchanged = await call(
+        app,
+        c.dispatcher!,
+        'PUT',
+        `/planning/plans/${fixture.plan.id}`,
+        { version: acknowledgment.version, trips: [], deferrals: [deferral] },
+      );
+      const preserved = await call(app, c.dispatcher!, 'GET', `/planning/plans/${fixture.plan.id}`);
+      expect(preserved.decisions[0].id).toBe(decisionId);
+      expect(preserved.decisions[0].override_acknowledged).toBe(true);
+      await call(app, c.dispatcher!, 'PUT', `/planning/plans/${fixture.plan.id}`, {
+        version: unchanged.version,
+        trips: [],
+        deferrals: [{ ...deferral, rationale: 'Changed operational reason' }],
+      });
+      const changed = await call(app, c.dispatcher!, 'GET', `/planning/plans/${fixture.plan.id}`);
+      expect(changed.decisions[0].override_acknowledged).toBe(false);
+      expect(changed.decisions[0].override_reason).toBeNull();
+    }));
+
   it('edits drafts, scopes reads and rejects invalid pagination', () =>
     isolated(async (_tx, app, c) => {
       const products = await call(app, c['manager.out001']!, 'GET', '/catalog');

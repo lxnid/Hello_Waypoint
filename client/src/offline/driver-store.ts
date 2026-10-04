@@ -54,7 +54,11 @@ export async function operations(actorId: string) {
   );
   return all
     .filter((operation) => operation.actorId === actorId)
-    .sort((a, b) => a.capturedAt.localeCompare(b.capturedAt) || (a.action === 'ARRIVAL' ? -1 : 1));
+    .sort(
+      (a, b) =>
+        a.capturedAt.localeCompare(b.capturedAt) ||
+        (a.action === b.action ? a.id.localeCompare(b.id) : a.action === 'ARRIVAL' ? -1 : 1),
+    );
 }
 export const saveCached = (key: string, value: unknown) =>
   transact('cache', 'readwrite', (store) => store.put(value, key));
@@ -64,23 +68,35 @@ export async function driverRead<T>(actorId: string, path: string): Promise<T> {
   const key = `${actorId}:${path}`;
   try {
     const result = await request<T>(path);
-    await saveCached(key, result);
+    window.dispatchEvent(new CustomEvent('waypoint:connectivity', { detail: { reachable: true } }));
+    await saveCached(key, result).catch(() => undefined);
     return result;
   } catch (error) {
     if (error instanceof TypeError || !navigator.onLine) {
+      window.dispatchEvent(
+        new CustomEvent('waypoint:connectivity', { detail: { reachable: false } }),
+      );
       const cached = await readCached<T>(key);
       if (cached) return cached;
     }
     throw error;
   }
 }
-let running: Promise<void> | undefined;
+const running = new Map<string, Promise<void>>();
 export function syncDriver(actorId: string) {
-  if (running) return running;
-  running = synchronize(actorId).finally(() => {
-    running = undefined;
-  });
-  return running;
+  const existing = running.get(actorId);
+  if (existing) return existing;
+  const task = (
+    navigator.locks
+      ? navigator.locks.request(`waypoint-sync:${actorId}`, () => synchronize(actorId))
+      : synchronize(actorId)
+  )
+    .then(() => undefined)
+    .finally(() => {
+      running.delete(actorId);
+    });
+  running.set(actorId, task);
+  return task;
 }
 async function synchronize(actorId: string) {
   const queue = await operations(actorId);

@@ -63,6 +63,8 @@ export type PriorityQuery = Static<typeof PriorityQuerySchema>;
 const NullableDateSchema = Type.Union([Type.String({ format: 'date' }), Type.Null()]);
 const NullableDaysSchema = Type.Union([Type.Integer({ minimum: 0 }), Type.Null()]);
 export const OrderPrioritySchema = Type.Object({
+  weightKg: Type.Union([Type.String(), Type.Null()]),
+  volumeM3: Type.Union([Type.String(), Type.Null()]),
   orderId: Type.String({ format: 'uuid' }),
   publicReference: Type.String(),
   outletId: Type.String(),

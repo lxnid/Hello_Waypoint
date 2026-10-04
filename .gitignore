@@ -11,3 +11,5 @@ playwright-report/
 test-results/
 *.tsbuildinfo
 exports/
+# Private local-development delivery evidence
+.data/proofs/

@@ -64,6 +64,13 @@
       "when": 1791006703148,
       "tag": "0008_operational_guards",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1791088529699,
+      "tag": "0009_outlet_navigation_location",
+      "breakpoints": true
     }
   ]
 }

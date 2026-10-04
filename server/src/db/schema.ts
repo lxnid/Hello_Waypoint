@@ -84,6 +84,9 @@ export const outlets = pgTable(
       .references(() => districts.id),
     name: text('name'),
     contact: text('contact'),
+    address: text('address'),
+    latitude: numeric('latitude', { precision: 10, scale: 7 }),
+    longitude: numeric('longitude', { precision: 11, scale: 7 }),
     dockType: text('dock_type').notNull(),
     parkingConstraint: text('parking_constraint').notNull(),
     mallOpenTime: time('mall_open_time'),
@@ -93,6 +96,10 @@ export const outlets = pgTable(
   },
   (t) => [
     index('outlets_district_brand_idx').on(t.districtId, t.brandId),
+    check(
+      'outlets_location_check',
+      sql`(${t.latitude} IS NULL AND ${t.longitude} IS NULL) OR (${t.latitude} IS NOT NULL AND ${t.longitude} IS NOT NULL AND ${t.latitude} BETWEEN -90 AND 90 AND ${t.longitude} BETWEEN -180 AND 180)`,
+    ),
     index('outlets_brand_idx').on(t.brandId),
     check('outlets_dock_check', sql`${t.dockType} IN ('rear_dock','street','mall_bay')`),
     check(
