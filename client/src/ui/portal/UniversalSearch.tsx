@@ -3,28 +3,14 @@ import { useQuery } from '@tanstack/react-query';
 import { ArrowLeft, ClipboardList, Search, Truck, X } from 'lucide-react';
 import { request } from '../../api';
 
-type OrderHit = {
-  id: string;
-  public_reference: string;
-  outlet_name?: string;
-  district_name?: string;
-  brand_name?: string;
-  status: string;
-  temperature_requirement: string;
-};
-type TripHit = {
-  id: string;
-  vehicle_id: string;
-  trip_number: number;
-  status: string;
-  manifest_status?: string | null;
-  operating_date?: string;
-};
-
-export type SearchTarget = { kind: 'order'; id: string } | { kind: 'load'; id: string };
+import type { OrderHit, TripHit, SearchTarget } from '../../types/search';
+export type { SearchTarget } from '../../types/search';
 
 function humanize(value?: string | null) {
-  return (value ?? '').toLowerCase().replace(/_/g, ' ').replace(/^\w/, (c) => c.toUpperCase());
+  return (value ?? '')
+    .toLowerCase()
+    .replace(/_/g, ' ')
+    .replace(/^\w/, (c) => c.toUpperCase());
 }
 
 export function UniversalSearch({

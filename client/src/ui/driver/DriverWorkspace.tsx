@@ -26,40 +26,7 @@ const panel = 'rounded-card border border-border bg-white p-5';
 const field = 'mt-2 min-h-12 w-full rounded-control border border-border bg-white px-4 text-sm';
 const button =
   'flex min-h-12 w-full items-center justify-center gap-2 rounded-control bg-primary px-5 text-sm font-medium text-white disabled:opacity-40';
-type Line = { id: string; sku: string; name: string; quantity: number };
-type Stop = {
-  address?: string | null;
-  latitude?: string | null;
-  longitude?: string | null;
-  contact?: string | null;
-  id: string;
-  order_id: string;
-  sequence: number;
-  public_reference: string;
-  outlet_name: string | null;
-  temperature_requirement: string;
-  planned_arrival_at: string;
-  window_close_at: string;
-  lines: Line[];
-  load_lines?: { order_line_id: string; loaded_quantity: number }[] | null;
-  aggregate: { units: number; weight_kg: string; volume_m3: string } | null;
-  attempt: { id: string; outcome: string | null; completed_at: string | null } | null;
-};
-type Trip = {
-  id: string;
-  vehicle_id: string;
-  trip_number: number;
-  operating_date: string;
-  status: string;
-  plan_id: string;
-  version: number;
-};
-type Detail = {
-  trip: Trip;
-  stops: Stop[];
-  inspection: object | null;
-  manifest: { status: string } | null;
-};
+import type { Line, Stop, Trip, Detail } from '../../types/driver-workspace';
 const formatDate = (value: string) =>
   new Date(value).toLocaleString('en-GB', {
     timeZone: 'Asia/Colombo',
@@ -237,6 +204,15 @@ export function DriverWorkspace({ user }: { user: User }) {
                   </p>
                 </div>
               </div>
+              <TripActions
+                key={selectedTrip}
+                trip={detail.data.trip}
+                online={online}
+                chilled={detail.data.stops.some(
+                  (stop) => stop.temperature_requirement === 'chilled',
+                )}
+                refresh={() => void cache.invalidateQueries({ queryKey: ['driver', user.id] })}
+              />
               {detail.data.stops.map((item, index) => (
                 <button
                   key={item.id}
@@ -262,12 +238,6 @@ export function DriverWorkspace({ user }: { user: User }) {
                   )}
                 </button>
               ))}
-              <TripActions
-                key={selectedTrip}
-                trip={detail.data.trip}
-                online={online}
-                refresh={() => void cache.invalidateQueries({ queryKey: ['driver', user.id] })}
-              />
             </>
           )}
         </>
@@ -278,10 +248,12 @@ export function DriverWorkspace({ user }: { user: User }) {
 function TripActions({
   trip,
   online,
+  chilled,
   refresh,
 }: {
   trip: Trip;
   online: boolean;
+  chilled: boolean;
   refresh: () => void;
 }) {
   const [odometer, setOdometer] = useState('');
@@ -326,7 +298,12 @@ function TripActions({
         }
       }}
     >
-      <h2 className="font-semibold">{returning ? 'Return to depot' : 'Vehicle inspection'}</h2>
+      <h2 className="font-semibold">{returning ? 'Return to depot' : 'Pre-trip inspection'}</h2>
+      {!returning && (
+        <p className="text-sm text-muted">
+          Complete these checks so the dispatcher can dispatch your loaded trip.
+        </p>
+      )}
       <label className="block text-sm">
         {returning ? 'Ending' : 'Starting'} odometer (km)
         <input
@@ -357,6 +334,7 @@ function TripActions({
           <label className="flex gap-3 text-sm">
             <input
               type="checkbox"
+              required
               checked={fuelChecked}
               onChange={(e) => setFuelChecked(e.target.checked)}
             />
@@ -365,6 +343,7 @@ function TripActions({
           <label className="flex gap-3 text-sm">
             <input
               type="checkbox"
+              required={chilled}
               checked={chillerChecked}
               onChange={(e) => setChillerChecked(e.target.checked)}
             />
@@ -375,6 +354,8 @@ function TripActions({
             <input
               type="number"
               step="0.1"
+              required={chilled}
+              max={chilled ? 4 : undefined}
               className={field}
               value={temperature}
               onChange={(e) => setTemperature(e.target.value)}

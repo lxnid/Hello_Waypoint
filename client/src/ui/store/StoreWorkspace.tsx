@@ -16,40 +16,7 @@ const panel = 'rounded-card border border-border bg-white p-5';
 const field = 'mt-2 min-h-11 w-full rounded-control border border-border bg-white px-4 text-sm';
 const button =
   'inline-flex min-h-12 items-center justify-center gap-2 rounded-control bg-primary px-5 text-sm text-white disabled:opacity-40';
-type Order = {
-  id: string;
-  public_reference: string;
-  status: string;
-  requested_date: string;
-  temperature_requirement: string;
-  order_size: number;
-};
-type Product = {
-  id: string;
-  sku: string;
-  name: string;
-  temperature_requirement: 'ambient' | 'chilled';
-  ordering_unit: string;
-};
-type Line = { id: string; name: string; quantity: number; product_id: string };
-type Attempt = {
-  id: string;
-  stop_id: string;
-  outcome: string | null;
-  completed_at: string | null;
-  receipt: object | null;
-  lines: { order_line_id: string; delivered_quantity: number; rejected_quantity: number }[] | null;
-  delivered_units: number | null;
-};
-type Detail = {
-  order: Order;
-  lines: Line[];
-  aggregate: { units: number } | null;
-  attempts: Attempt[];
-  stops: { id: string }[];
-  issues: { id: string; type: string; notes: string | null; resolution: string | null }[];
-};
-type Page = { items: Order[]; nextCursor: string | null };
+import type { Product, Attempt, Detail, Page, ReceiptCounts } from '../../types/store-workspace';
 const json = (body: unknown, method = 'POST') => ({ method, body: JSON.stringify(body) });
 export function StoreWorkspace({ user }: { user: User }) {
   const cache = useQueryClient();
@@ -362,7 +329,6 @@ function StoreOrder({
   );
 }
 
-type ReceiptCounts = { accepted: number; missing: number; damaged: number; rejected: number };
 function Receipt({
   attempt,
   data,

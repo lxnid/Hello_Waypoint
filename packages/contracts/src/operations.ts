@@ -93,3 +93,6 @@ export const DeferralOverrideAcknowledgementSchema = Type.Object({
   version: Type.Integer({ minimum: 1 }),
   acknowledged: Type.Literal(true),
 });
+
+export type OrderPriority = Static<typeof OrderPrioritySchema>;
+export type DeferralOverrideAcknowledgement = Static<typeof DeferralOverrideAcknowledgementSchema>;

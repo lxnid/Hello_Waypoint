@@ -46,4 +46,11 @@ export const OverviewSchema = Type.Object({
 });
 export type Overview = Static<typeof OverviewSchema>;
 
-export type { CreateOrder } from './operations.js';
+export type {
+  CreateOrder,
+  PriorityQuery,
+  OrderPriority,
+  DeferralOverride,
+  DeferralOverrideAcknowledgement,
+} from './operations.js';
+export type { PlanEdit, ReplayCommand } from './workflows.js';

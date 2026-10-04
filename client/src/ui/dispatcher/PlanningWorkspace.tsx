@@ -2,20 +2,9 @@ import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowRight, ChevronDown, Plus, Truck } from 'lucide-react';
 import type { User } from '@waypoint/contracts';
-import { request } from '../../api';
+import { api, request } from '../../api';
 import { ClusterPlanner } from './ClusterPlanner';
-import type {
-  Context,
-  Issue,
-  Page,
-  Plan,
-  PlanDetail,
-  Priority,
-  Reference,
-  Store,
-  Trip,
-  Vehicle,
-} from './planning-types';
+import type { Issue, Page, Reference, Store, StopInfo, Trip, Vehicle } from './planning-types';
 
 const panel = 'rounded-[20px] border border-border bg-white/60 p-5';
 const field =
@@ -40,31 +29,30 @@ export function PlanningWorkspace({ user, tab }: { user: User; tab: string }) {
   const [notice, setNotice] = useState('');
   const contexts = useQuery({
     queryKey: ['planning-contexts'],
-    queryFn: () => request<Context[]>('/planning/contexts'),
+    queryFn: () => api.planning.listContexts(),
   });
   const reference = useQuery({
     queryKey: ['dispatch-reference'],
-    queryFn: () => request<Reference>('/dispatch/reference'),
+    queryFn: () => api.dispatch.reference(),
   });
   const selectedId = contextId || contexts.data?.[0]?.id || '';
   const context = contexts.data?.find((item) => item.id === selectedId);
   const plans = useQuery({
     queryKey: ['plans', selectedId],
     enabled: !!selectedId,
-    queryFn: () => request<Plan[]>(`/planning/contexts/${selectedId}/plans`),
+    queryFn: () => api.planning.getContextPlans(selectedId),
   });
   const planId = plans.data?.find((plan) => plan.depot_id === depot)?.id;
   const detail = useQuery({
     queryKey: ['plan', planId],
     enabled: !!planId,
-    refetchInterval: tab === 'planning' ? 15000 : false,
-    queryFn: () => request<PlanDetail>(`/planning/plans/${planId}`),
+    refetchInterval: tab === 'planning' ? 5000 : false,
+    queryFn: () => api.planning.getPlan(planId!),
   });
   const priorities = useQuery({
     queryKey: ['priorities', selectedId, depot],
     enabled: !!selectedId && tab === 'planning',
-    queryFn: () =>
-      request<Priority[]>(`/planning/priorities?contextId=${selectedId}&depot=${depot}`),
+    queryFn: () => api.planning.getPriorities({ contextId: selectedId, depot }),
   });
   const fleet = useQuery({
     queryKey: ['fleet', selectedId],
@@ -185,7 +173,10 @@ export function PlanningWorkspace({ user, tab }: { user: User; tab: string }) {
         </div>
       )}
       {notice && (
-        <div role="status" className="shrink-0 rounded-2xl border border-border bg-white p-4 text-sm">
+        <div
+          role="status"
+          className="shrink-0 rounded-2xl border border-border bg-white p-4 text-sm"
+        >
           {notice}
         </div>
       )}
@@ -584,15 +575,6 @@ function TripTracker({
     </>
   );
 }
-type StopInfo = {
-  id: string;
-  order_id: string;
-  sequence: number;
-  outlet_name?: string;
-  public_reference?: string;
-  planned_arrival_at: string;
-  attempt?: { outcome: string | null } | null;
-};
 function Issues({
   run,
   busy,

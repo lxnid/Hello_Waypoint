@@ -14,6 +14,7 @@ import {
 } from '../src/modules/operations/service.js';
 import { importPeakScenario, importHistory } from '../src/modules/operations/imports.js';
 import { releasePlan } from '../src/modules/operations/planning.js';
+import { planningRead as planDetail } from '../src/modules/operations/reads.js';
 import {
   recordLoad,
   completeLoading,
@@ -376,7 +377,15 @@ suite('normalized operational database', () => {
       chillerChecked: true,
       inspectedAt: new Date(),
     });
+    const inspectedPlan = await planDetail(db!, dispatcher, f.plan.id);
+    const inspectedTrip = inspectedPlan.trips.find((trip) => trip.id === f.trip.id)!;
+    expect(inspectedTrip.dispatch_ready).toBe(true);
+    expect(inspectedTrip.dispatch_block_reason).toBeNull();
     await authorizeDeparture(db!, f.trip.id, dispatcher);
+    const dispatchedPlan = await planDetail(db!, dispatcher, f.plan.id);
+    const dispatchedTrip = dispatchedPlan.trips.find((trip) => trip.id === f.trip.id)!;
+    expect(dispatchedTrip.status).toBe('DISPATCHED');
+    expect(dispatchedTrip.dispatch_ready).toBe(false);
     const arrival = await db!.transaction((tx) =>
       recordArrival(tx, driver, f.stop.id, new Date('2026-03-30T00:24:00Z')),
     );
@@ -415,7 +424,16 @@ suite('normalized operational database', () => {
         .set({ loadedQuantity: 2 })
         .where(eq(s.loadLineRecords.stopId, f.stop.id)),
     ).rejects.toThrow();
-    await expect(authorizeDeparture(db!, f.trip.id, dispatcher)).rejects.toThrow('inspection');
+    const loadedPlan = await planDetail(db!, dispatcher, f.plan.id);
+    const loadedTrip = loadedPlan.trips.find((trip) => trip.id === f.trip.id)!;
+    expect(loadedTrip.manifest_status).toBe('COMPLETED');
+    expect(loadedTrip.dispatch_ready).toBe(false);
+    expect(loadedTrip.dispatch_block_reason).toBe(
+      'The assigned driver must complete the pre-trip inspection',
+    );
+    await expect(authorizeDeparture(db!, f.trip.id, dispatcher)).rejects.toThrow(
+      'pre-trip inspection',
+    );
     await db!.insert(s.tripInspections).values({
       tripId: f.trip.id,
       driverId: driver,

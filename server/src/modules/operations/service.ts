@@ -1,3 +1,4 @@
+import { departureBlockReasonSql } from './departure-readiness.js';
 import { and, eq, gt, sql } from 'drizzle-orm';
 import { createHash, randomUUID } from 'node:crypto';
 import type { CreateOrder } from '@waypoint/contracts';
@@ -275,10 +276,12 @@ export async function authorizeDeparture(db: Database, tripId: string, actorId: 
     const [trip] = await tx.select().from(trips).where(eq(trips.id, tripId)).for('update');
     if (!trip || trip.status !== 'PLANNED')
       throw new WorkflowError('Trip is not ready for departure');
-    const readiness = await tx.execute(
-      sql`SELECT 1 FROM load_manifests m JOIN trip_inspections i ON i.trip_id=m.trip_id JOIN plans p ON p.id=${trip.planId} WHERE m.trip_id=${tripId} AND m.status='COMPLETED' AND p.status='RELEASED' AND i.driver_id=${trip.driverId} AND i.fuel_checked AND (NOT EXISTS (SELECT 1 FROM trip_stops s JOIN orders o ON o.id=s.order_id WHERE s.trip_id=${tripId} AND o.temperature_requirement='chilled') OR (i.chiller_checked AND i.temperature_c <= 4)) AND NOT EXISTS (SELECT 1 FROM issues x JOIN trip_stops s ON s.id=x.stop_id WHERE s.trip_id=${tripId} AND x.resolved_at IS NULL)`,
+    const [readiness] = await tx.execute<{ reason: string | null }>(
+      sql`SELECT ${departureBlockReasonSql(tripId)} AS reason`,
     );
-    if (!readiness.length) throw new WorkflowError('Loading or pre-trip inspection is incomplete');
+    if (!readiness || readiness.reason) {
+      throw new WorkflowError(readiness?.reason ?? 'Trip is not ready for departure');
+    }
     const at = new Date();
     await tx
       .update(loadManifests)

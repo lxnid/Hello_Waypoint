@@ -15,64 +15,8 @@ import {
 import type { User } from '@waypoint/contracts';
 import { request } from '../../api';
 
-export type Order = {
-  id: string;
-  public_reference: string;
-  outlet_id: string;
-  outlet_name?: string;
-  brand_name?: string;
-  district_name?: string;
-  format: string;
-  temperature_requirement: string;
-  status: string;
-  order_size?: number;
-  requested_date: string;
-  eligible_date: string;
-  latest_decision?: string;
-  deferred?: boolean;
-  days_since_last_served?: number | null;
-  last_served_date?: string | null;
-  history_status?: string;
-  priority_as_of_date?: string | null;
-  weight_kg?: string | null;
-  volume_m3?: string | null;
-};
-type Options = { id: string; name: string };
-type OrdersPage = {
-  items: Order[];
-  nextCursor: string | null;
-  summary: {
-    total: number;
-    chilled: number;
-    ambient: number;
-    fresh: number;
-    textile: number;
-    fragile: number;
-    deferred: number;
-  };
-  filters: { brands: Options[]; districts: Options[]; statuses: string[] };
-};
-type Line = {
-  id: string;
-  product_id?: string;
-  product_name?: string;
-  name?: string;
-  sku?: string;
-  quantity: number;
-  temperature_requirement?: string;
-  unit_weight_kg?: string;
-  unit_volume_m3?: string;
-};
-type Detail = {
-  order: Order;
-  outlet?: Record<string, unknown>;
-  lines: Line[];
-  aggregate: { units: number; weight_kg: string; volume_m3: string } | null;
-  decisions: Record<string, unknown>[];
-  attempts: Record<string, unknown>[];
-  stops: Record<string, unknown>[];
-  issues: Record<string, unknown>[];
-};
+import type { OrdersPage, Detail } from '../../types/dispatcher-orders';
+export type { Order } from '../../types/dispatcher-orders';
 const pillSelectClass =
   'h-11 w-full appearance-none rounded-xl border border-border bg-white/60 pl-4 pr-11 text-sm font-normal text-foreground outline-none transition-colors hover:bg-white focus:border-primary focus:ring-1 focus:ring-primary cursor-pointer';
 export function humanize(value: string) {
@@ -157,7 +101,10 @@ export function OrdersWorkspace({ user, deferred }: { user: User; deferred: bool
     setFilters((current) => ({ ...current, [key]: value }));
   return (
     <div className="flex h-full min-h-0 items-stretch gap-5 xl:gap-8 overflow-hidden">
-      <section className="min-w-0 flex-1 h-full overflow-y-auto p-2" aria-label={deferred ? 'Deferred orders' : 'Live orders'}>
+      <section
+        className="min-w-0 flex-1 h-full overflow-y-auto p-2"
+        aria-label={deferred ? 'Deferred orders' : 'Live orders'}
+      >
         <div className="mb-5 flex items-center justify-between gap-3 md:hidden">
           <h1 className="text-xl font-semibold">{deferred ? 'Deferred Orders' : 'Live Orders'}</h1>
           <button

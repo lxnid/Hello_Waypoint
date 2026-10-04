@@ -1,5 +1,5 @@
 import type { ReplayCommand } from '@waypoint/contracts/workflows';
-import { request } from '../api';
+import { api, request } from '../api';
 
 type Delivery = Extract<ReplayCommand, { action: 'DELIVERY' }>['payload'];
 export type DriverOperation = {
@@ -127,18 +127,12 @@ async function synchronize(actorId: string) {
         }
         command = { ...envelope, action: 'DELIVERY', attemptId, payload: item.payload };
       }
-      const response = await request<{
-        results: {
-          applied: boolean;
-          result?: { attemptId?: string };
-          error?: { message: string };
-        }[];
-      }>('/sync', { method: 'POST', body: JSON.stringify({ commands: [command] }) });
+      const response = await api.offline.sync([command]);
       const result = response.results[0];
       if (!result?.applied)
         throw new Error(result?.error?.message ?? 'Operation was not accepted.');
       item.applied = true;
-      if (result.result?.attemptId) item.attemptId = result.result.attemptId;
+      if (typeof result.result.attemptId === 'string') item.attemptId = result.result.attemptId;
       delete item.error;
       delete item.proof;
       await saveOperation(item);

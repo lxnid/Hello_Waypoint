@@ -1,3 +1,4 @@
+import { departureBlockReasonSql } from './departure-readiness.js';
 import { sql } from 'drizzle-orm';
 import type { Database } from '../../db/client.js';
 import { type Transaction, WorkflowError } from './service.js';
@@ -175,6 +176,8 @@ export async function planningRead(db: Database, userId: string, planId: string)
   );
   const trips = await db.execute(
     sql`SELECT t.*,m.status AS manifest_status,u.display_name AS loader_name,
+      ${departureBlockReasonSql(sql`t.id`)} AS dispatch_block_reason,
+      ${departureBlockReasonSql(sql`t.id`)} IS NULL AS dispatch_ready,
       EXISTS(SELECT 1 FROM trip_inspections i WHERE i.trip_id=t.id) AS inspection_recorded,
       coalesce((SELECT jsonb_agg(to_jsonb(s) ORDER BY sequence) FROM trip_stops s WHERE s.trip_id=t.id),'[]') AS stops
       FROM trips t LEFT JOIN load_manifests m ON m.trip_id=t.id LEFT JOIN users u ON u.id=coalesce(m.signed_by,(SELECT e.actor_id FROM audit_events e WHERE e.entity_type='trip' AND e.entity_id=t.id::text AND e.action='LOAD_STARTED' ORDER BY e.created_at DESC LIMIT 1),(SELECT e.actor_id FROM audit_events e JOIN trip_stops ts ON ts.id::text=e.entity_id WHERE ts.trip_id=t.id AND e.entity_type='stop' AND e.action='ORDER_LOADED' ORDER BY e.created_at ASC LIMIT 1))

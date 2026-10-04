@@ -227,6 +227,8 @@ export const DecisionRowSchema = row({
   next_eligible_date: nullable(date()),
 });
 export const TripRowSchema = row({
+  dispatch_ready: Type.Optional(Type.Boolean()),
+  dispatch_block_reason: Type.Optional(nullable(Type.String())),
   id: uuid(),
   plan_id: uuid(),
   vehicle_id: Type.String(),
@@ -403,3 +405,36 @@ export const HistoryImportSchema = object({
   version: Type.String({ minLength: 1, maxLength: 80 }),
 });
 export const ImportResultSchema = object({ batchId: uuid(), imported: Type.Boolean() });
+
+// Public types derived from the same schemas used by the HTTP routes.
+export type OrderQuery = Static<typeof OrderQuerySchema>;
+export type OrdersResponse = Static<typeof OrdersResponseSchema>;
+export type OrderDetail = Static<typeof OrderDetailSchema>;
+export type TripRow = Static<typeof TripRowSchema>;
+export type TripDetail = Static<typeof TripDetailSchema>;
+export type IssueRow = Static<typeof IssueRowSchema>;
+export type DeliveryInput = Static<typeof DeliveryInputSchema>;
+export type ReceiptInput = Static<typeof ReceiptInputSchema>;
+export type LoadInput = Static<typeof LoadInputSchema>;
+export type InspectionInput = Static<typeof InspectionInputSchema>;
+export type ReturnInput = Static<typeof ReturnInputSchema>;
+export type IssueInput = Static<typeof IssueInputSchema>;
+export type PeakScenarioImport = Static<typeof PeakScenarioImportSchema>;
+export type HistoryImport = Static<typeof HistoryImportSchema>;
+export type ImportResult = Static<typeof ImportResultSchema>;
+export type SyncResult = Static<typeof SyncResultSchema>;
+export type StageOrders = Static<typeof StageOrdersSchema>;
+export type TripOrderEdit = Static<typeof TripOrderEditSchema>;
+export type TripCandidates = Static<typeof TripCandidatesSchema>;
+
+export type ContextRow = Static<typeof ContextRowSchema>;
+export type ContextCommandResult = Static<typeof ContextCommandResultSchema>;
+export type PlanRow = Static<typeof PlanRowSchema>;
+export type PlanCommandResult = Static<typeof PlanCommandResultSchema>;
+export type PlanEditResult = Static<typeof PlanEditResultSchema>;
+export type VehicleRow = Static<typeof VehicleRowSchema>;
+export type CatalogRow = Static<typeof CatalogRowSchema>;
+export type OrderCommandResult = Static<typeof OrderCommandResultSchema>;
+export type IssueCommandResult = Static<typeof IssueCommandResultSchema>;
+export type AttachmentQuery = Static<typeof AttachmentQuerySchema>;
+export type PageQuery = Static<typeof PageQuerySchema>;

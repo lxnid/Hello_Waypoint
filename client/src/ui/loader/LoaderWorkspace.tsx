@@ -14,71 +14,7 @@ import {
 import type { User } from '@waypoint/contracts';
 import { request } from '../../api';
 
-type Trip = {
-  id: string;
-  depot_id: string;
-  vehicle_id: string;
-  driver_id: string;
-  trip_number: number;
-  operating_date: string;
-  status: string;
-  manifest_status?: string | null;
-  stops_count?: number;
-  orders_count?: number;
-  created_at?: string;
-};
-
-type Stop = {
-  id: string;
-  trip_id: string;
-  order_id: string;
-  sequence: number;
-  outlet_name?: string;
-  public_reference?: string;
-  planned_arrival_at: string;
-  actual_arrival_at?: string | null;
-  loaded_quantity?: number | null;
-  temperature_requirement?: string;
-  window_close_at?: string;
-  lines?: OrderLine[];
-  aggregate?: { units: number; weight_kg: string; volume_m3: string } | null;
-  load?: { confirmed_at: string } | null;
-  dock_damaged_quantity?: number | null;
-};
-
-type TripDetail = {
-  trip: Trip;
-  stops: Stop[];
-  manifest: { id: string; status: string; signed_at?: string | null } | null;
-};
-
-type OrderLine = {
-  id: string;
-  sku?: string;
-  name?: string;
-  product_name?: string;
-  quantity: number;
-  temperature_requirement?: string;
-};
-
-type OrderDetail = {
-  order: {
-    id: string;
-    public_reference: string;
-    temperature_requirement: string;
-    status: string;
-    requested_date: string;
-  };
-  outlet?: {
-    name?: string;
-    window_open_time?: string;
-    window_close_time?: string;
-    dock_type?: string;
-  };
-  lines: OrderLine[];
-  aggregate?: { units: number; weight_kg: string; volume_m3: string } | null;
-};
-
+import type { Trip, Stop, TripDetail, OrderDetail } from '../../types/loader-workspace';
 function humanize(val?: string | null) {
   if (!val) return '—';
   return val
@@ -389,7 +325,9 @@ function LoadDetailsView({
   const loadId = `LDS-${trip.id.slice(0, 4).toUpperCase()}`;
   const isManifestSigned = manifest?.status === 'COMPLETED';
   const isLoadStarted = manifest?.status === 'LOADING' || isManifestSigned;
-  const hasChilled = stops.some((stop) => stop.temperature_requirement?.toLowerCase() === 'chilled');
+  const hasChilled = stops.some(
+    (stop) => stop.temperature_requirement?.toLowerCase() === 'chilled',
+  );
 
   return (
     <div className="mx-auto max-w-4xl space-y-6">
@@ -739,9 +677,7 @@ function ChecklistReportingView({
                 if (!reportOpen) toggleItem(line.id);
               }}
               className={`flex items-center justify-between gap-4 rounded-card border bg-white p-5 transition ${
-                reportOpen
-                  ? 'border-border'
-                  : 'cursor-pointer border-border hover:shadow-sm'
+                reportOpen ? 'border-border' : 'cursor-pointer border-border hover:shadow-sm'
               } ${reportOpen && reportSelected[line.id] ? 'border-primary' : ''}`}
               role="checkbox"
               aria-checked={isChecked}
@@ -944,7 +880,9 @@ function ChecklistReportingView({
               {selectedReportLines.length > 0 && (
                 <span className="mt-1 block text-xs font-normal text-muted">
                   {selectedReportLines
-                    .map((line) => line.sku ?? line.product_name ?? line.name ?? line.id.slice(0, 8))
+                    .map(
+                      (line) => line.sku ?? line.product_name ?? line.name ?? line.id.slice(0, 8),
+                    )
                     .join(', ')}
                 </span>
               )}

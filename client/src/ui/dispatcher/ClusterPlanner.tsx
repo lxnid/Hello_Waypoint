@@ -1,7 +1,15 @@
 import { useMemo, useRef, useState, useEffect } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, ArrowRight, ChevronDown, Truck, X, PanelRightClose, PanelRightOpen } from 'lucide-react';
-import { request } from '../../api';
+import {
+  ArrowLeft,
+  ArrowRight,
+  ChevronDown,
+  Truck,
+  X,
+  PanelRightClose,
+  PanelRightOpen,
+} from 'lucide-react';
+import { api, request } from '../../api';
 import type { Context, Deferral, PlanDetail, Priority, Reference, Vehicle } from './planning-types';
 
 const panel = 'rounded-[20px] border border-border bg-white/30';
@@ -230,7 +238,9 @@ export function ClusterPlanner({ detail, context, priorities, reference, fleet }
                         </span>
                         <div className="flex flex-wrap items-center gap-2">
                           {(() => {
-                            const stagedCount = orders.filter((o) => state(o) !== 'UNASSIGNED').length;
+                            const stagedCount = orders.filter(
+                              (o) => state(o) !== 'UNASSIGNED',
+                            ).length;
                             if (stagedCount > 0 && stagedCount < orders.length) {
                               return (
                                 <span className="rounded-full border border-amber-300 bg-amber-50 px-2.5 py-0.5 text-xs font-medium text-amber-800">
@@ -414,9 +424,7 @@ export function ClusterPlanner({ detail, context, priorities, reference, fleet }
             <div
               className={`flex-1 min-h-0 grid items-stretch gap-5 overflow-hidden ${allocationOpen ? 'xl:grid-cols-2' : 'grid-cols-[minmax(0,1fr)_56px]'}`}
             >
-              <section
-                className={`${panel} flex h-full min-h-0 flex-col overflow-hidden`}
-              >
+              <section className={`${panel} flex h-full min-h-0 flex-col overflow-hidden`}>
                 <header className="shrink-0 flex flex-wrap items-center gap-6 p-5">
                   <h2 className="text-lg font-medium">Stage Orders</h2>
                   <label className="flex items-center gap-2 text-sm text-muted">
@@ -505,16 +513,18 @@ export function ClusterPlanner({ detail, context, priorities, reference, fleet }
                               {store?.parking_constraint === 'van_only' ? 'Van only' : 'Any'}
                             </span>
                           </div>
-                          {decisions.get(order.orderId)?.rationale && state(order) === 'UNASSIGNED' && (
-                            <p className="mt-2.5 rounded-xl border border-red-200 bg-red-50 p-2.5 text-xs text-red-800">
-                              {decisions.get(order.orderId)?.rationale}
-                            </p>
-                          )}
-                          {decisions.get(order.orderId)?.rationale && state(order) === 'DEFERRED' && (
-                            <p className="mt-2 text-xs text-muted">
-                              Deferred: {decisions.get(order.orderId)?.rationale}
-                            </p>
-                          )}
+                          {decisions.get(order.orderId)?.rationale &&
+                            state(order) === 'UNASSIGNED' && (
+                              <p className="mt-2.5 rounded-xl border border-red-200 bg-red-50 p-2.5 text-xs text-red-800">
+                                {decisions.get(order.orderId)?.rationale}
+                              </p>
+                            )}
+                          {decisions.get(order.orderId)?.rationale &&
+                            state(order) === 'DEFERRED' && (
+                              <p className="mt-2 text-xs text-muted">
+                                Deferred: {decisions.get(order.orderId)?.rationale}
+                              </p>
+                            )}
                         </div>
                       </button>
                     );
@@ -562,9 +572,7 @@ export function ClusterPlanner({ detail, context, priorities, reference, fleet }
                   </span>
                 </button>
               ) : (
-                <section
-                  className={`${panel} flex h-full min-h-0 flex-col overflow-hidden`}
-                >
+                <section className={`${panel} flex h-full min-h-0 flex-col overflow-hidden`}>
                   <header className="shrink-0 flex flex-wrap items-center justify-between gap-3 p-5">
                     <h2 className="text-lg font-medium">Load/Vehicle Assigning</h2>
                     <span className="text-xs text-muted">
@@ -685,9 +693,13 @@ export function ClusterPlanner({ detail, context, priorities, reference, fleet }
                     })}
                     {!trips.length && (
                       <div className="rounded-2xl border border-border bg-surface p-6 text-sm text-muted">
-                        <p className="font-medium text-foreground">No loads currently assigned in this cluster.</p>
+                        <p className="font-medium text-foreground">
+                          No loads currently assigned in this cluster.
+                        </p>
                         <p className="mt-2 text-xs leading-relaxed">
-                          Select eligible orders on the left and click <strong>Stage</strong> to allocate them to vehicles, or <strong>Defer</strong> to schedule for a later operating date.
+                          Select eligible orders on the left and click <strong>Stage</strong> to
+                          allocate them to vehicles, or <strong>Defer</strong> to schedule for a
+                          later operating date.
                         </p>
                       </div>
                     )}
@@ -750,6 +762,14 @@ export function ClusterPlanner({ detail, context, priorities, reference, fleet }
                             : trip.manifest_status === 'LOADING'
                               ? 'Loading'
                               : 'Assigned'}
+                      {!editable &&
+                        trip.status === 'PLANNED' &&
+                        trip.manifest_status === 'COMPLETED' &&
+                        trip.dispatch_block_reason && (
+                          <span className="mt-1 block max-w-xs text-xs text-amber-800">
+                            {trip.dispatch_block_reason}
+                          </span>
+                        )}
                     </span>
                     {!editable && (
                       <button
@@ -759,8 +779,7 @@ export function ClusterPlanner({ detail, context, priorities, reference, fleet }
                             (mutation.variables as { path?: string } | undefined)?.path ===
                               `/trips/${trip.id}/depart`) ||
                           trip.status !== 'PLANNED' ||
-                          trip.manifest_status !== 'COMPLETED' ||
-                          !trip.inspection_recorded
+                          trip.dispatch_ready !== true
                         }
                         onClick={() =>
                           mutation.mutate({ path: `/trips/${trip.id}/depart`, body: {} })
@@ -1002,11 +1021,7 @@ function TripOrderPicker({
   const [orderId, setOrderId] = useState('');
   const candidates = useQuery({
     queryKey: ['trip-candidates', tripId, planVersion],
-    queryFn: () =>
-      request<{
-        version: number;
-        items: { orderId: string; valid: boolean; reason: string | null }[];
-      }>(`/planning/trips/${tripId}/candidates`),
+    queryFn: () => api.planning.candidates(tripId),
     staleTime: 0,
   });
   const chosen = candidates.data?.items.find((item) => item.orderId === orderId);

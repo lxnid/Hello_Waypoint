@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { beforeAll, afterAll, describe, expect, it } from 'vitest';
-import { eq } from 'drizzle-orm';
+import { and, eq, ne } from 'drizzle-orm';
 import type { FastifyInstance, HTTPMethods } from 'fastify';
 import { createDatabase, type Database } from '../src/db/client.js';
 import { seed } from '../src/db/seed.js';
@@ -138,16 +138,14 @@ suite('operational HTTP workflows', () => {
           .update(s.orders)
           .set({ status: 'SUBMITTED', submittedAt: new Date('2026-03-28T10:30:00Z') })
           .where(eq(s.orders.id, order.id));
-        await tx
-          .insert(s.orderSources)
-          .values({
-            orderId: order.id,
-            batchId: fixture.context!.batchId!,
-            scenario: 'HTTP',
-            sourceReference: order.publicReference,
-            rowPosition,
-            sourceContext: {},
-          });
+        await tx.insert(s.orderSources).values({
+          orderId: order.id,
+          batchId: fixture.context!.batchId!,
+          scenario: 'HTTP',
+          sourceReference: order.publicReference,
+          rowPosition,
+          sourceContext: {},
+        });
         return order;
       }
       const feasible = await addOrder(2, 1),
@@ -431,6 +429,11 @@ suite('operational HTTP workflows', () => {
     }));
   it('runs assisted allocation, loading, proof, offline replay, receipt and return through HTTP', () =>
     isolated(async (tx, app, c) => {
+      // The logged-in driver must be the fixture's assigned driver, even when other test drivers exist.
+      await tx
+        .update(s.users)
+        .set({ isActive: false })
+        .where(and(eq(s.users.role, 'DRIVER'), ne(s.users.email, 'driver@waypoint.lk')));
       const f = await scenario(tx, app, c);
       expect(f.generated.tripCount).toBe(1);
       expect(
@@ -459,11 +462,20 @@ suite('operational HTTP workflows', () => {
         lines: [{ orderLineId: line.id, loadedQuantity: 2, damagedQuantity: 0 }],
       });
       await call(app, c.loader!, 'POST', `/trips/${trip.id}/sign-load`);
+      const loaded = await call(app, c.dispatcher!, 'GET', `/planning/plans/${f.plan.id}`);
+      expect(loaded.trips[0].manifest_status).toBe('COMPLETED');
+      expect(loaded.trips[0].dispatch_ready).toBe(false);
+      expect(loaded.trips[0].dispatch_block_reason).toBe(
+        'The assigned driver must complete the pre-trip inspection',
+      );
       await call(app, c.driver!, 'PUT', `/trips/${trip.id}/inspection`, {
         startingOdometerKm: '100',
         fuelChecked: true,
         chillerChecked: false,
       });
+      const ready = await call(app, c.dispatcher!, 'GET', `/planning/plans/${f.plan.id}`);
+      expect(ready.trips[0].dispatch_ready).toBe(true);
+      expect(ready.trips[0].dispatch_block_reason).toBeNull();
       await call(app, c.dispatcher!, 'POST', `/trips/${trip.id}/depart`);
       const arrivalCommand = {
         clientOperationId: randomUUID(),
