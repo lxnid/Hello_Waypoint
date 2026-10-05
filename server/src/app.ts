@@ -18,6 +18,10 @@ import type { Database } from './db/client.js';
 import type { SessionIdentity } from './modules/auth/service.js';
 import { getSession } from './modules/auth/service.js';
 import { authRoutes } from './modules/auth/routes.js';
+import { dispatchReferenceRoutes } from './modules/operations/dispatch-reference.js';
+import { workflowRoutes } from './modules/operations/api.js';
+import { managementRoutes } from './modules/operations/management-routes.js';
+import { planningRoutes } from './modules/operations/routes.js';
 import { portalRoutes } from './modules/portal/routes.js';
 
 declare module 'fastify' {
@@ -79,18 +83,65 @@ export async function buildApp(config: Config, db: Database): Promise<FastifyIns
     openapi: {
       openapi: '3.1.0',
       info: {
-        title: 'Waypoint API',
-        version: '0.1.0',
-        description: 'Stage 1 identity and foundation API',
+        title: 'Waypoint Delivery Planning & Operations API',
+        version: '1.0.0',
+        description:
+          'Multi-role logistics API connecting Store Managers, Dispatchers, Loaders, and Drivers for daily order intake, feasibility-guarded fleet allocation, reverse LIFO loading, digital POD delivery, and receipt verification.',
       },
-      servers: [{ url: config.appOrigin }],
+      servers: [{ url: config.appOrigin, description: 'Current application origin' }],
       components: {
-        securitySchemes: { cookieAuth: { type: 'apiKey', in: 'cookie', name: 'waypoint_session' } },
+        securitySchemes: {
+          cookieAuth: {
+            type: 'apiKey',
+            in: 'cookie',
+            name: 'waypoint_session',
+            description: 'HttpOnly session cookie issued upon login via POST /api/v1/auth/login',
+          },
+        },
       },
-      tags: [{ name: 'System' }, { name: 'Authentication' }],
+      tags: [
+        {
+          name: 'Authentication',
+          description: 'Session issuance, identity inspection, and logout revocation',
+        },
+        {
+          name: 'DISPATCHER',
+          description:
+            'Order intake queue, fleet availability, assisted planning (Rules 1-7), and departure authorization',
+        },
+        {
+          name: 'LOADER',
+          description: 'Dock bay staging, reverse-sequence LIFO loading, and manifest sign-off',
+        },
+        {
+          name: 'DRIVER',
+          description:
+            'Pre-trip vehicle inspections, stop progression, digital POD, offline sync, and depot return',
+        },
+        {
+          name: 'STORE_MANAGER',
+          description:
+            'Catalog ordering before 16:00 cutoff, inbound delivery tracking, and digital receipt verification',
+        },
+        {
+          name: 'Planning',
+          description: 'Priority metrics calculation and protected deferral overrides',
+        },
+        {
+          name: 'Operations',
+          description: 'Consolidated operational queries, audit history, and proof attachments',
+        },
+        {
+          name: 'System',
+          description: 'Application health, database connectivity, and role portal overviews',
+        },
+      ],
     },
   });
-  await app.register(swaggerUi, { routePrefix: '/docs', uiConfig: { docExpansion: 'list' } });
+  await app.register(swaggerUi, {
+    routePrefix: '/docs',
+    uiConfig: { docExpansion: 'list', deepLinking: true },
+  });
 
   app.decorate('requireAuth', async (request, reply) => {
     try {
@@ -111,7 +162,7 @@ export async function buildApp(config: Config, db: Database): Promise<FastifyIns
     if (request.identity?.user.role !== role) {
       reply.code(403).send({
         code: 'FORBIDDEN',
-        message: 'This workspace is not available to your role',
+        message: 'Insufficient permissions',
         requestId: request.id,
       });
     }
@@ -121,13 +172,23 @@ export async function buildApp(config: Config, db: Database): Promise<FastifyIns
     // Same-origin writes protect cookie sessions against cross-site form submissions.
     if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(request.method)) {
       const origin = request.headers.origin;
-      if (origin && origin !== config.appOrigin)
+      const isAllowedOrigin =
+        !origin ||
+        origin === config.appOrigin ||
+        (config.nodeEnv === 'development' &&
+          (origin.startsWith('http://localhost:') || origin.startsWith('http://127.0.0.1:')));
+      if (!isAllowedOrigin)
         reply.code(403).send({
           code: 'INVALID_ORIGIN',
           message: 'Request origin is not allowed',
           requestId: request.id,
         });
     }
+  });
+
+  app.addHook('onSend', async (request, reply, payload) => {
+    if (request.identity) reply.header('Cache-Control', 'private, no-store');
+    return payload;
   });
 
   app.setErrorHandler((error, request, reply) => {
@@ -139,7 +200,17 @@ export async function buildApp(config: Config, db: Database): Promise<FastifyIns
     if (status >= 500) request.log.error(error);
     reply.code(status).send({
       code:
-        status === 400 ? 'VALIDATION_ERROR' : status === 429 ? 'RATE_LIMITED' : 'INTERNAL_ERROR',
+        status === 400
+          ? 'VALIDATION_ERROR'
+          : status === 403
+            ? 'FORBIDDEN'
+            : status === 404
+              ? 'NOT_FOUND'
+              : status === 409
+                ? 'WORKFLOW_CONFLICT'
+                : status === 429
+                  ? 'RATE_LIMITED'
+                  : 'INTERNAL_ERROR',
       message: status >= 500 ? 'An unexpected error occurred' : failure.message,
       requestId: request.id,
     });
@@ -169,6 +240,10 @@ export async function buildApp(config: Config, db: Database): Promise<FastifyIns
   );
   await app.register(authRoutes, { prefix: '/api/v1/auth' });
   await app.register(portalRoutes, { prefix: '/api/v1/portal' });
+  await app.register(planningRoutes, { prefix: '/api/v1/planning' });
+  await app.register(workflowRoutes, { prefix: '/api/v1' });
+  await app.register(dispatchReferenceRoutes, { prefix: '/api/v1' });
+  await app.register(managementRoutes, { prefix: '/api/v1' });
 
   if (config.serveClient) {
     const root = join(fileURLToPath(new URL('.', import.meta.url)), '../../client/dist');
@@ -181,7 +256,9 @@ export async function buildApp(config: Config, db: Database): Promise<FastifyIns
     app.get('/*', { schema: { hide: true } }, async (request, reply) => {
       const path = request.url.split('?')[0] ?? '';
       const pageRoute =
-        path === '/' || path === '/login' || /^\/(dispatcher|loader|driver|store)(\/|$)/.test(path);
+        path === '/' ||
+        path === '/login' ||
+        /^\/(dispatcher|loader|driver|store|planning|fleet|stores|tracker|issues)(\/|$)/.test(path);
       if (!pageRoute)
         return reply.code(404).send({
           code: 'NOT_FOUND',

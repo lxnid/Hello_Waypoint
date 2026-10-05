@@ -1,0 +1,8 @@
+# Overlay used only for verification; the database remains the Compose PostgreSQL service.
+services:
+  app:
+    volumes:
+      - ./server/src:/app/server/src:ro
+      - ./server/test:/app/server/test:ro
+      - ./server/drizzle:/app/server/drizzle:ro
+      - ./data/reference:/app/data/reference:ro

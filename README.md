@@ -1,6 +1,6 @@
 # Waypoint Logistics
 
-Stage 1 of the Tech-Triathlon Hackathon implementation. The system will connect ordering, allocation, loading, delivery, and receipt across four roles. This stage establishes the deployable foundation: reference data, authentication, role context, and a documented API.
+Waypoint Logistics connects ordering, assisted fleet planning, loading, delivery, receipt, proof, and claims across four roles. The backend runs as Docker services with PostgreSQL and Drizzle migrations.
 
 ## Quick start
 
@@ -10,7 +10,7 @@ Install Docker Desktop, then run:
 docker compose up --build
 ```
 
-Open [Waypoint](http://localhost:3000) or [Swagger UI](http://localhost:3000/docs). The database, migrations, and seed run automatically. The seed may safely run again without duplicating rows.
+Open [Waypoint](http://localhost:3000) or [Swagger UI](http://localhost:3000/docs). Compose waits for PostgreSQL and the Drizzle migration service before starting the app. In another terminal, seed reference data and demo accounts with `docker compose --profile demo run --rm seed`.
 
 ## Demo accounts
 
@@ -18,7 +18,7 @@ These accounts use synthetic competition data. All four use the demo password `P
 
 | Role          | Email                        | Scope            |
 | ------------- | ---------------------------- | ---------------- |
-| Dispatcher    | `dispatcher@waypoint.lk`     | Peliyagoda depot |
+| Dispatcher    | `dispatcher@waypoint.lk`     | Both depots      |
 | Loader        | `loader@waypoint.lk`         | Peliyagoda depot |
 | Driver        | `driver@waypoint.lk`         | Peliyagoda depot |
 | Store manager | `manager.out001@waypoint.lk` | OUT001           |
@@ -46,11 +46,11 @@ docker compose stop app
 pnpm dev
 ```
 
-The server loads the repository-root `.env` automatically while preserving any environment variables supplied by Docker or CI. Check changes with `pnpm verify`; `pnpm format` applies the shared Prettier style.
+The server loads the repository-root `.env` automatically while preserving any environment variables supplied by Docker or CI. Check changes with `pnpm verify`; `pnpm format` applies the shared Prettier style. Run `pnpm verify:database` for Drizzle migration and integration checks using the Docker PostgreSQL service and an isolated test database.
 
 ## Architecture and API
 
-The client, server, and shared contracts are pnpm workspaces. The same TypeBox schemas describe validation, responses, TypeScript types, and OpenAPI. PostgreSQL stores reference outlets, vehicles, users, and revocable sessions. [Architecture](docs/architecture.md) and [data model](docs/data-model.md) document the boundaries.
+The client, server, and shared contracts are pnpm workspaces. The same TypeBox schemas describe validation, responses, TypeScript types, and OpenAPI. PostgreSQL stores normalized network/catalog references, orders, dated plans, trip load manifests, fulfillment, receipts, claims, forecasts, users, and revocable sessions. [Architecture](docs/architecture.md) and [data model](docs/data-model.md) document the boundaries.
 
 The API is under `/api/v1`. Use `POST /api/v1/auth/login`, `GET /api/v1/auth/me`, `POST /api/v1/auth/logout`, and the role-specific `/api/v1/portal/{role}/overview` endpoints. Swagger UI is at `/docs`; the generated document is at `/docs/json`.
 
@@ -69,4 +69,16 @@ The submitted Designathon PDF and live prototype are the visual and workflow bas
 
 ## Competition data
 
-`data/reference` contains the two source CSVs needed for foundation seeding. They are synthetic competition data and should be handled according to the challenge booklet's publication rules. Do not publish this repository or the data without organizer authorization.
+`data/reference` contains the source CSVs needed for reference seeding. They are synthetic competition data and should be handled according to the challenge booklet's publication rules. Do not publish this repository or the data without organizer authorization.
+
+## Operational data foundation
+
+The backend exposes role-scoped APIs for orders, assisted planning, manifests, loading, dispatch, delivery, receipts, proof, exception claims, replay, and return/fuel closure. Proof files persist on a private Docker volume. Operational browser screens and durable browser-side offline storage remain to be connected. Run `docker compose --profile demo run --rm seed` to create the synthetic released-plan walkthrough. See [the data model](docs/data-model.md) for lifecycles, constraints, indexes, CSV import/export, and Docker verification.
+
+For clean local QA, `pnpm db:seed` seeds references and accounts without sample orders. Use `SEED_DEMO_ORDERS=true pnpm db:seed` to explicitly include the synthetic workflow and UI orders. Live planning opens after the 16:00 Asia/Colombo intake cutoff; historical simulation contexts use their imported scenario dates.
+
+## Store manager workspace
+
+The store workspace follows the submitted order overview, catalogue, add-item, and deferred-detail screens while reusing the existing navigation, panel, and field styles. Managers can select products by SKU, save and edit drafts, submit orders, inspect released delivery assignments, and confirm receipts or report issues. Store catalogue reads are restricted to the signed-in outlet’s brand, and show quantities for its delivery depot. Dispatchers can browse products grouped by Fresh, Style, or Tech and update available quantities separately for Peliyagoda and Kandy.
+
+Run `pnpm --filter @waypoint/server db:migrate` followed by `pnpm --filter @waypoint/server db:seed:catalog` to install the catalogue and inventory migration and populate 17 mock products with depot balances. The seed preserves product IDs and existing manually adjusted inventory; it creates no operational orders or plans. Product artwork is bundled locally, with no S3 dependency. `max_order_quantity` is the per-order limit. Draft quantities are checked against depot stock and stock is locked, validated, and decremented atomically when submitted. Monthly summaries use Asia/Colombo month boundaries.

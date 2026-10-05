@@ -1,0 +1,60 @@
+export type Order = {
+  id: string;
+  public_reference: string;
+  outlet_id: string;
+  outlet_name?: string;
+  brand_name?: string;
+  district_name?: string;
+  format: string;
+  temperature_requirement: string;
+  status: string;
+  order_size?: number;
+  requested_date: string;
+  eligible_date: string;
+  latest_decision?: string;
+  deferred?: boolean;
+  next_eligible_date?: string | null;
+  deferral_reason?: string | null;
+  days_since_last_served?: number | null;
+  last_served_date?: string | null;
+  history_status?: string;
+  priority_as_of_date?: string | null;
+  weight_kg?: string | null;
+  volume_m3?: string | null;
+};
+export type Options = { id: string; name: string };
+export type OrdersPage = {
+  items: Order[];
+  nextCursor: string | null;
+  summary: {
+    total: number;
+    chilled: number;
+    ambient: number;
+    fresh: number;
+    textile: number;
+    fragile: number;
+    deferred: number;
+  };
+  filters: { brands: Options[]; districts: Options[]; statuses: string[] };
+};
+export type Line = {
+  id: string;
+  product_id?: string;
+  product_name?: string;
+  name?: string;
+  sku?: string;
+  quantity: number;
+  temperature_requirement?: string;
+  unit_weight_kg?: string;
+  unit_volume_m3?: string;
+};
+export type Detail = {
+  order: Order;
+  outlet?: Record<string, unknown>;
+  lines: Line[];
+  aggregate: { units: number; weight_kg: string; volume_m3: string } | null;
+  decisions: Record<string, unknown>[];
+  attempts: Record<string, unknown>[];
+  stops: Record<string, unknown>[];
+  issues: Record<string, unknown>[];
+};

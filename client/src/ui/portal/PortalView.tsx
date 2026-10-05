@@ -1,255 +1,373 @@
-import type { LucideIcon } from 'lucide-react';
+import { lazy, Suspense, useEffect, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { api, request } from '../../api';
+import { useLocation, useNavigate } from 'react-router-dom';
 import {
-  ArrowUpRight,
   Boxes,
-  Building2,
   ClipboardList,
-  Database,
-  FileText,
-  LayoutDashboard,
+  Clock3,
+  History,
   LogOut,
   MapPinned,
+  Package,
   PackageCheck,
-  Route,
+  PackageSearch,
+  Search,
+  Store,
   Truck,
+  CircleUserRound,
+  TriangleAlert,
 } from 'lucide-react';
 import type { Overview, User } from '@waypoint/contracts';
-import { ROLE_LABEL, type Role } from '@waypoint/contracts/roles';
 import { Brand } from '../components/Brand';
-import { Button } from '../components/Button';
+import { UniversalSearch, type SearchTarget } from './UniversalSearch';
+import { WorkspaceSidebar, WorkspaceMobileNav, type NavItem } from '../components/WorkspaceNav';
+const OrdersWorkspace = lazy(() =>
+  import('../dispatcher/OrdersWorkspace').then((module) => ({ default: module.OrdersWorkspace })),
+);
+const PlanningWorkspace = lazy(() =>
+  import('../dispatcher/PlanningWorkspace').then((module) => ({
+    default: module.PlanningWorkspace,
+  })),
+);
+const CatalogWorkspace = lazy(() =>
+  import('../dispatcher/CatalogWorkspace').then((module) => ({
+    default: module.CatalogWorkspace,
+  })),
+);
+const RoleWorkspace = lazy(() =>
+  import('../workflows/RoleWorkspace').then((module) => ({ default: module.RoleWorkspace })),
+);
 
-type RolePresentation = {
-  icon: LucideIcon;
-  eyebrow: string;
-  heading: string;
-  description: string;
-  nextStep: string;
+const brand = {
+  DISPATCHER: 'DISPATCH',
+  LOADER: 'LOADER',
+  DRIVER: 'DRIVER',
+  STORE_MANAGER: 'STORE',
 };
 
-const ROLE_PRESENTATION: Record<Role, RolePresentation> = {
-  DISPATCHER: {
-    icon: ClipboardList,
-    eyebrow: 'DISPATCH CONTROL',
-    heading: 'Plan with the full picture.',
-    description: 'Your delivery network and vehicle reference data are connected and ready.',
-    nextStep: 'Order planning and allocation arrive in the next operational stage.',
-  },
-  LOADER: {
-    icon: PackageCheck,
-    eyebrow: 'LOADING CONTROL',
-    heading: 'Prepare every load with clarity.',
-    description: 'Your depot, vehicle reference data, and secure loader access are connected.',
-    nextStep: 'Load sequencing and verification arrive in the next operational stage.',
-  },
-  DRIVER: {
-    icon: Truck,
-    eyebrow: 'DELIVERY CONTROL',
-    heading: 'Keep every stop on course.',
-    description: 'Your driver identity, depot, and delivery workspace are securely connected.',
-    nextStep: 'Assigned routes and delivery confirmation arrive in the next operational stage.',
-  },
-  STORE_MANAGER: {
-    icon: Building2,
-    eyebrow: 'STORE CONTROL',
-    heading: 'Stay ready for every arrival.',
-    description: 'Your outlet identity and secure store workspace are connected.',
-    nextStep: 'Ordering, tracking, and receipt confirmation arrive in the next operational stage.',
-  },
-};
+function useColomboClock() {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(new Date()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Colombo',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23',
+  })
+    .format(now)
+    .split(':')
+    .map(Number);
+  const remaining = 16 * 3600 - ((parts[0] ?? 0) * 3600 + (parts[1] ?? 0) * 60 + (parts[2] ?? 0));
+  const cutoff =
+    remaining > 0
+      ? `Orders close in ${[Math.floor(remaining / 3600), Math.floor((remaining % 3600) / 60), remaining % 60].map((n) => String(n).padStart(2, '0')).join(':')}`
+      : 'Order cutoff passed · Planning open';
+  return {
+    date: new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Asia/Colombo',
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+    }).format(now),
+    cutoff,
+  };
+}
 
-type PortalViewProps = {
+type Props = {
   user: User;
-  overview: Overview | undefined;
+  overview?: Overview | undefined;
   isOverviewLoading: boolean;
   overviewError: string;
   logoutError: string;
   isLoggingOut: boolean;
   onLogout: () => void;
 };
+export function PortalView({ user, logoutError, isLoggingOut, onLogout }: Props) {
+  const [collapsed, setCollapsed] = useState(false);
+  const [accountOpen, setAccountOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const clock = useColomboClock();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const tab = location.pathname.split('/')[2] || 'orders';
+  const dispatcher = user.role === 'DISPATCHER';
+  const store = user.role === 'STORE_MANAGER';
+  const storeProfile = useQuery({
+    queryKey: ['store', user.id, 'profile'],
+    queryFn: api.catalog.profile,
+    enabled: store,
+  });
+  const deferred = useQuery({
+    queryKey: ['store', user.id, 'deferred-count'],
+    queryFn: () => request<{ summary?: { deferred?: number } }>('/orders?limit=1&deferred=true'),
+    enabled: store,
+    refetchInterval: 30000,
+  });
+  const deferredCount = deferred.data?.summary?.deferred ?? 0;
 
-type MetricCardProps = {
-  icon: LucideIcon;
-  label: string;
-  value: string;
-  tone: 'chilled' | 'ambient' | 'textile';
-  isLoading?: boolean;
-};
+  const loadsSummary = useQuery({
+    queryKey: ['dispatcher', 'loads-summary'],
+    queryFn: () =>
+      request<{ items: { id: string; status: string; manifest_status?: string | null }[] }>(
+        '/trips?limit=50',
+      ),
+    enabled: dispatcher,
+    refetchInterval: 5000,
+  });
 
-function MetricCard({ icon: Icon, label, value, tone, isLoading = false }: MetricCardProps) {
+  const hasLoads = (loadsSummary.data?.items?.length ?? 0) > 0 || tab === 'loads';
+  const readyLoadsCount =
+    loadsSummary.data?.items?.filter(
+      (item) => item.manifest_status === 'COMPLETED' && item.status === 'PLANNED',
+    ).length ?? 0;
+  const inProgressLoadsCount =
+    loadsSummary.data?.items?.filter(
+      (item) => item.manifest_status === 'LOADING',
+    ).length ?? 0;
+  const activeLoadsCount =
+    loadsSummary.data?.items?.filter(
+      (item) => item.status === 'PLANNED',
+    ).length ?? 0;
+
+  const loadsBadgeColor: 'emerald' | 'amber' | 'primary' =
+    readyLoadsCount > 0 ? 'emerald' : inProgressLoadsCount > 0 ? 'amber' : 'primary';
+
+  const dispatcherNavigation: NavItem[] = [
+    { path: 'orders', label: 'Live Orders', icon: ClipboardList, group: 'DISPATCH' },
+    { path: 'deferred', label: 'Deferred Orders', icon: Clock3, group: 'DISPATCH' },
+    { path: 'planning', label: 'Planning', icon: Boxes, group: 'DISPATCH' },
+    ...(hasLoads
+      ? [
+          {
+            path: 'loads',
+            label: 'Loads',
+            icon: PackageCheck,
+            group: 'DISPATCH',
+            isSubItem: true,
+            badge:
+              readyLoadsCount > 0
+                ? readyLoadsCount
+                : inProgressLoadsCount > 0
+                  ? '•'
+                  : activeLoadsCount > 0
+                    ? activeLoadsCount
+                    : null,
+            badgeColor: loadsBadgeColor,
+          },
+        ]
+      : []),
+    { path: 'fleet', label: 'Fleet', icon: Truck, group: 'MANAGEMENT' },
+    { path: 'stores', label: 'Stores', icon: Store, group: 'MANAGEMENT' },
+    { path: 'tracker', label: 'Tracker', icon: MapPinned, group: 'MANAGEMENT' },
+    { path: 'issues', label: 'Issues', icon: TriangleAlert, group: 'MANAGEMENT' },
+    { path: 'catalog', label: 'Catalogue', icon: PackageSearch, group: 'MANAGEMENT' },
+  ];
+
+  const storeNavigation: NavItem[] = [
+    { path: 'orders', label: 'Live Orders', icon: ClipboardList, group: 'ORDER MANAGEMENT' },
+    {
+      path: 'deferred',
+      label: 'Deferred Orders',
+      icon: Clock3,
+      group: 'ORDER MANAGEMENT',
+      badge: deferredCount > 0 ? deferredCount : null,
+    },
+    { path: 'history', label: 'Order History', icon: History, group: 'ORDER MANAGEMENT' },
+    { path: 'items', label: 'Items', icon: Package, group: 'CATALOGUE' },
+    { path: 'vehicles', label: 'Vehicles', icon: Truck, group: 'LOGISTICS' },
+  ];
   return (
-    <article className="metric-card" data-tone={tone}>
-      <div className="metric-icon">
-        <Icon size={21} aria-hidden="true" />
-      </div>
-      <div>
-        <p>{label}</p>
-        {isLoading ? <span className="metric-skeleton" /> : <strong>{value}</strong>}
-      </div>
-    </article>
-  );
-}
-
-function Sidebar({ role }: { role: Role }) {
-  const RoleIcon = ROLE_PRESENTATION[role].icon;
-  return (
-    <aside className="portal-sidebar">
-      <Brand context="OPERATIONS" inverse />
-      <nav aria-label="Workspace navigation">
-        <p className="nav-caption">WORKSPACE</p>
-        <a className="nav-item" data-active="true" href="./">
-          <RoleIcon size={19} aria-hidden="true" />
-          <span>{ROLE_LABEL[role]}</span>
-        </a>
-        <a className="nav-item" href="/docs" target="_blank" rel="noreferrer">
-          <FileText size={19} aria-hidden="true" />
-          <span>API reference</span>
-        </a>
-      </nav>
-      <div className="system-status">
-        <span aria-hidden="true" />
-        <div>
-          <strong>Foundation online</strong>
-          <small>Stage 1 · Connected</small>
+    <div className="flex h-dvh flex-col overflow-hidden bg-surface px-3 pb-3 sm:px-6 sm:pb-4 lg:px-7 lg:pb-5">
+      <a
+        href="#workspace"
+        className="sr-only focus:not-sr-only focus:absolute focus:z-50 focus:rounded-control focus:bg-white focus:p-4"
+      >
+        Skip to workspace
+      </a>
+      <header className="relative flex shrink-0 min-h-20 sm:min-h-24 flex-wrap items-center justify-between gap-3 py-3 sm:py-5">
+        <Brand
+          context={brand[user.role]}
+          contextClassName="max-sm:text-xs"
+          wordClassName="max-sm:text-xl"
+        />
+        {store ? (
+          <div className="hidden items-center gap-4 text-sm md:flex">
+            <span className="font-medium">
+              {storeProfile.data?.name ?? user.outletId} ·{' '}
+              {storeProfile.data?.brand_name ?? 'Waypoint Store'}
+            </span>
+            {storeProfile.data && (
+              <span className="rounded-full bg-[#cdeff0] px-5 py-1">
+                {storeProfile.data.brand_id}
+              </span>
+            )}
+          </div>
+        ) : (
+          <p className="hidden items-center gap-5 text-sm lg:flex">
+            <span className="text-muted">Date</span>
+            <time className="font-semibold">{clock.date}</time>
+          </p>
+        )}
+        <div className="flex items-center gap-3">
+          <p className="hidden text-sm text-muted xl:block">
+            {store
+              ? clock.cutoff.replace(
+                  'Order cutoff passed · Planning open',
+                  'After 4 PM · Next eligible run',
+                )
+              : clock.cutoff}
+          </p>
+          {store && (
+            <button
+              className="min-h-11 rounded-full bg-primary px-6 text-sm text-white"
+              onClick={() => navigate('/store/create')}
+            >
+              Create Order
+            </button>
+          )}
+          <button
+            type="button"
+            aria-label="Search"
+            onClick={() => setSearchOpen(true)}
+            className="rounded-full p-2 text-muted hover:bg-border/40 hover:text-foreground focus-visible:outline-2"
+          >
+            <Search size={22} />
+          </button>
+          <button
+            type="button"
+            aria-label="Account menu"
+            aria-expanded={accountOpen}
+            onClick={() => setAccountOpen(!accountOpen)}
+            className="rounded-full p-2 text-muted hover:bg-border/40 hover:text-foreground focus-visible:outline-2"
+          >
+            <CircleUserRound size={26} />
+          </button>
         </div>
-      </div>
-    </aside>
-  );
-}
-
-function MobileNavigation({ role }: { role: Role }) {
-  const RoleIcon = ROLE_PRESENTATION[role].icon;
-  return (
-    <nav className="mobile-navigation" aria-label="Mobile workspace navigation">
-      <a data-active="true" href="./">
-        <RoleIcon size={20} aria-hidden="true" />
-        <span>Workspace</span>
-      </a>
-      <a href="/docs" target="_blank" rel="noreferrer">
-        <FileText size={20} aria-hidden="true" />
-        <span>API</span>
-      </a>
-    </nav>
-  );
-}
-
-export function PortalView({
-  user,
-  overview,
-  isOverviewLoading,
-  overviewError,
-  logoutError,
-  isLoggingOut,
-  onLogout,
-}: PortalViewProps) {
-  const presentation = ROLE_PRESENTATION[user.role];
-  const RoleIcon = presentation.icon;
-  const locationLabel = user.outletId ?? `${user.depot} depot`;
-  const scopeValue = overviewError
-    ? 'Unavailable'
-    : user.role === 'STORE_MANAGER'
-      ? `${overview?.outletCount ?? 0} outlet`
-      : `${overview?.outletCount ?? 0} outlets`;
-  const fleetValue = overviewError ? 'Unavailable' : `${overview?.vehicleCount ?? 0} vehicles`;
-
-  return (
-    <div className="portal-shell">
-      <Sidebar role={user.role} />
-      <div className="portal-workspace">
-        <header className="portal-topbar">
-          <div className="mobile-portal-brand">
-            <Brand context="OPERATIONS" />
-          </div>
-          <div className="location-chip">
-            <MapPinned size={17} aria-hidden="true" />
-            <span>{locationLabel}</span>
-          </div>
-          <div className="account-actions">
-            <div className="account-copy">
-              <strong>{user.displayName}</strong>
-              <span>{ROLE_LABEL[user.role]}</span>
-            </div>
-            <Button
-              type="button"
-              variant="secondary"
+        {accountOpen && (
+          <div className="absolute right-0 top-20 z-30 w-72 rounded-card border border-border bg-white p-5 shadow-lg">
+            <p className="font-semibold">{user.displayName}</p>
+            <p className="mt-1 break-all text-sm text-muted">{user.email}</p>
+            <p className="mt-3 text-sm">{clock.date} · Sri Lanka</p>
+            <button
               disabled={isLoggingOut}
               onClick={onLogout}
-              icon={<LogOut size={17} aria-hidden="true" />}
+              className="mt-5 flex min-h-11 w-full items-center justify-center gap-2 rounded-control bg-primary px-4 text-white disabled:opacity-50"
             >
+              <LogOut size={18} />
               {isLoggingOut ? 'Signing out…' : 'Sign out'}
-            </Button>
+            </button>
           </div>
-        </header>
-
-        <main className="portal-content">
-          {logoutError ? (
-            <p className="page-alert" role="alert">
-              {logoutError}
-            </p>
-          ) : null}
-          <div className="breadcrumb">
-            <LayoutDashboard size={15} aria-hidden="true" />
-            <span>Waypoint</span>
-            <span aria-hidden="true">/</span>
-            <strong>{ROLE_LABEL[user.role]}</strong>
+        )}
+      </header>
+      <UniversalSearch
+        open={searchOpen}
+        canSearchFleet={dispatcher}
+        canSearchOrders={dispatcher || user.role === 'STORE_MANAGER'}
+        onClose={() => setSearchOpen(false)}
+        onSelect={(target: SearchTarget) => {
+          setSearchOpen(false);
+          if (dispatcher) {
+            navigate(
+              target.kind === 'order'
+                ? `/dispatcher/orders/${target.id}`
+                : target.kind === 'vehicle'
+                  ? `/dispatcher/fleet?vehicleId=${encodeURIComponent(target.id)}`
+                  : `/dispatcher/loads?loadId=${encodeURIComponent(target.id)}`,
+            );
+          } else if (target.kind === 'load') {
+            navigate(
+              user.role === 'LOADER'
+                ? `/loader/loads?loadId=${encodeURIComponent(target.id)}`
+                : `/driver/routes?loadId=${encodeURIComponent(target.id)}`,
+            );
+          } else if (target.kind === 'order' && user.role === 'STORE_MANAGER') {
+            navigate(`/store/orders?orderId=${encodeURIComponent(target.id)}`);
+          }
+        }}
+      />
+      {logoutError && (
+        <p
+          role="alert"
+          className="mb-3 shrink-0 rounded-control border border-red-200 bg-red-50 p-3 text-red-800"
+        >
+          {logoutError}
+        </p>
+      )}
+      <div className="flex min-h-0 flex-1 items-stretch gap-5 xl:gap-8 overflow-hidden">
+        {(dispatcher || store) && (
+          <WorkspaceSidebar
+            items={store ? storeNavigation : dispatcherNavigation}
+            basePath={store ? '/store' : '/dispatcher'}
+            collapsed={collapsed}
+            onToggleCollapse={() => setCollapsed(!collapsed)}
+            ariaLabel={store ? 'Store navigation' : 'Dispatcher navigation'}
+            footer={
+              store ? (
+                <div>
+                  <span className="font-semibold text-foreground/80">
+                    {storeProfile.data?.name ?? user.outletId}
+                  </span>
+                  <br />
+                  Store workspace
+                </div>
+              ) : (
+                <div>
+                  {user.authorizedDepots.join(' · ')}
+                  <br />
+                  Dispatch workspace
+                </div>
+              )
+            }
+          />
+        )}
+        <main
+          id="workspace"
+          className="min-w-0 flex-1 h-full overflow-hidden flex flex-col"
+          tabIndex={-1}
+        >
+          {(dispatcher || store) && (
+            <WorkspaceMobileNav
+              items={store ? storeNavigation : dispatcherNavigation}
+              basePath={store ? '/store' : '/dispatcher'}
+              ariaLabel={store ? 'Mobile store navigation' : 'Mobile dispatcher navigation'}
+            />
+          )}
+          <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
+            <Suspense
+              fallback={
+                <p
+                  role="status"
+                  className="rounded-card border border-border bg-white p-8 text-sm text-muted"
+                >
+                  Opening workspace…
+                </p>
+              }
+            >
+              {dispatcher ? (
+                tab === 'orders' || tab === 'deferred' ? (
+                  <OrdersWorkspace key={tab} user={user} deferred={tab === 'deferred'} />
+                ) : tab === 'catalog' ? (
+                  <CatalogWorkspace />
+                ) : (
+                  <PlanningWorkspace user={user} tab={tab} />
+                )
+              ) : store ? (
+                <div className="flex-1 min-h-0 h-full overflow-hidden flex flex-col">
+                  <RoleWorkspace user={user} />
+                </div>
+              ) : (
+                <div className="flex-1 min-h-0 overflow-y-auto p-2">
+                  <RoleWorkspace user={user} />
+                </div>
+              )}
+            </Suspense>
           </div>
-
-          <section className="hero-row">
-            <div>
-              <p className="caption">{presentation.eyebrow}</p>
-              <h1>{presentation.heading}</h1>
-              <p>{presentation.description}</p>
-            </div>
-            <span className="stage-chip">STAGE 1 READY</span>
-          </section>
-
-          <section className="metric-grid" aria-label="Workspace summary">
-            <MetricCard
-              icon={RoleIcon}
-              label="Active role"
-              value={ROLE_LABEL[user.role]}
-              tone="chilled"
-            />
-            <MetricCard
-              icon={MapPinned}
-              label="Your location"
-              value={locationLabel}
-              tone="ambient"
-            />
-            <MetricCard
-              icon={Database}
-              label="Reference scope"
-              value={scopeValue}
-              tone="textile"
-              isLoading={isOverviewLoading}
-            />
-            <MetricCard
-              icon={Truck}
-              label="Available fleet"
-              value={fleetValue}
-              tone="chilled"
-              isLoading={isOverviewLoading}
-            />
-          </section>
-
-          <section className="foundation-card">
-            <div className="foundation-visual" aria-hidden="true">
-              <Route size={30} />
-              <span />
-              <Boxes size={30} />
-              <span />
-              <Truck size={30} />
-            </div>
-            <div className="foundation-copy">
-              <p className="caption">FOUNDATION CONNECTED</p>
-              <h2>Your operational workspace is ready.</h2>
-              <p>{presentation.nextStep}</p>
-            </div>
-            <a className="docs-link" href="/docs" target="_blank" rel="noreferrer">
-              View API documentation <ArrowUpRight size={18} aria-hidden="true" />
-            </a>
-          </section>
         </main>
-        <MobileNavigation role={user.role} />
       </div>
     </div>
   );

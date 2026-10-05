@@ -1,0 +1,18 @@
+brand_id,sku,name,ordering_unit,temperature_requirement,unit_weight_kg,unit_volume_m3,estimated_unit_value_lkr,max_order_quantity,description,image_url
+Fresh,FRS-APPLE,Apples,case,ambient,6.00,0.030,3600.00,25,Crisp apples protected in six-kilogram cases.,/catalog/apple.svg
+Fresh,FRS-BANANA,Bananas,case,ambient,10.00,0.040,1800.00,40,Cavendish bananas for daily produce replenishment.,/catalog/banana.svg
+Fresh,FRS-BROCCOLI,Broccoli,crate,chilled,4.00,0.030,2800.00,24,Fresh broccoli. Keep refrigerated throughout delivery.,/catalog/broccoli.svg
+Fresh,FRS-CARROT,Carrots,crate,ambient,5.00,0.025,1200.00,30,"Washed carrots, graded and packed for display.",/catalog/carrot.svg
+Fresh,FRS-CHEESE,Cheddar cheese,case,chilled,4.00,0.018,7200.00,20,Individually sealed cheese packs for chilled displays.,/catalog/cheese.svg
+Fresh,FRS-CHICKEN,Chicken portions,case,chilled,5.00,0.020,6500.00,20,Sealed chilled chicken portions. Maintain the cold chain.,/catalog/chicken.svg
+Fresh,FRS-MILK,Fresh milk,case,chilled,12.00,0.025,5400.00,40,Twelve one-litre cartons. Refrigerated transport required.,/catalog/milk.svg
+Fresh,FRS-ORANGE,Oranges,case,ambient,8.00,0.035,2800.00,25,Sweet oranges sorted for retail produce displays.,/catalog/orange.svg
+Fresh,FRS-PINEAPPLE,Pineapple,case,ambient,8.00,0.035,2400.00,34,"Whole ripe pineapples, packed in protective cases.",/catalog/pineapple.svg
+Fresh,FRS-POTATO,Potatoes,bag,ambient,10.00,0.020,2200.00,50,Fresh potatoes in ten-kilogram sacks.,/catalog/potato.svg
+Fresh,FRS-RICE,White rice,bag,ambient,10.00,0.015,2600.00,60,Sealed ten-kilogram bags of white rice.,/catalog/rice.svg
+Fresh,FRS-TOMATO,Tomatoes,crate,ambient,5.00,0.025,1500.00,30,Firm ripe tomatoes in ventilated crates.,/catalog/tomato.svg
+Fresh,FRS-YOGURT,Plain yogurt,case,chilled,3.00,0.012,2400.00,30,Plain yogurt cups in a refrigerated display case.,/catalog/yogurt.svg
+Style,STY-JEANS,Denim jeans,carton,ambient,8.00,0.150,24000.00,20,Folded denim jeans packed in protective cartons.,/catalog/jeans.svg
+Style,STY-TSHIRT,Cotton T-shirts,carton,ambient,4.00,0.120,12000.00,25,"Assorted cotton T-shirts, twenty retail units per carton.",/catalog/shirt.svg
+Tech,TEC-KETTLE,Electric kettles,carton,ambient,6.00,0.100,18000.00,15,Boxed electric kettles. Handle cartons with care.,/catalog/kettle.svg
+Tech,TEC-MONITOR,Computer monitors,item,ambient,5.00,0.080,48000.00,12,Individually boxed monitors with protective inserts.,/catalog/monitor.svg

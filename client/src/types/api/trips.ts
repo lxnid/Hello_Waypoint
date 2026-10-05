@@ -1,0 +1,10 @@
+import type { TripQuery } from '@waypoint/contracts/workflows';
+export type TripsListQuery = TripQuery;
+export type TripsLoadStopResponse = { stopId: string; confirmed: boolean };
+export type TripsSignLoadResponse = { tripId: string; status: string };
+export type TripsInspectResponse = { tripId: string; inspected: boolean };
+export type TripsDepartResponse = { ok: true };
+export type TripsArriveResponse = { attemptId: string };
+export type TripsCompleteDeliveryResponse = { attemptId: string; outcome: string };
+export type TripsConfirmReceiptResponse = { attemptId: string; outcome: string };
+export type TripsReturnToDepotResponse = { tripId: string; status: string };

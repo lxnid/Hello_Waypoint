@@ -15,4 +15,4 @@ ENV NODE_ENV=production SERVE_CLIENT=true PORT=3000 HOST=0.0.0.0
 RUN npm install -g pnpm@10.32.1
 COPY --from=build /app /app
 EXPOSE 3000
-CMD ["sh", "-c", "pnpm db:migrate && pnpm db:seed && node server/dist/main.js"]
+CMD ["node", "server/dist/main.js"]

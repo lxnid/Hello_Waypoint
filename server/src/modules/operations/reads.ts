@@ -1,0 +1,275 @@
+import { departureBlockReasonSql } from './departure-readiness.js';
+import { sql } from 'drizzle-orm';
+import type { Database } from '../../db/client.js';
+import { type Transaction, WorkflowError } from './service.js';
+export type Actor = { id: string; role: string; outlet_id: string | null; depot_id: string | null };
+export async function actor(db: Database | Transaction, id: string) {
+  const [user] = await db.execute<Actor>(
+    sql`SELECT id,role,outlet_id,depot_id FROM users WHERE id=${id} AND is_active`,
+  );
+  if (!user) throw new WorkflowError('Inactive account', 403);
+  return user;
+}
+export function orderScope(user: Actor) {
+  return sql`(${user.role}='DISPATCHER' OR (${user.role}='STORE_MANAGER' AND o.outlet_id=${user.outlet_id}) OR (${user.role}='LOADER' AND d.depot_id=${user.depot_id}) OR (${user.role}='DRIVER' AND EXISTS(SELECT 1 FROM trip_stops s JOIN trips t ON t.id=s.trip_id JOIN plans p ON p.id=t.plan_id WHERE s.order_id=o.id AND t.driver_id=${user.id} AND p.status<>'DRAFT')))`;
+}
+export async function assertOrderScope(db: Database | Transaction, user: Actor, orderId: string) {
+  const rows = await db.execute(
+    sql`SELECT 1 FROM orders o JOIN outlets ot ON ot.id=o.outlet_id JOIN districts d ON d.id=ot.district_id WHERE o.id=${orderId} AND ${orderScope(user)}`,
+  );
+  if (!rows.length) throw new WorkflowError('Order not found', 404);
+}
+export type Page = { limit?: number; cursor?: string; depot?: 'Peliyagoda' | 'Kandy'; q?: string };
+function cursor(value?: string) {
+  if (!value) return null;
+  try {
+    const decoded = JSON.parse(Buffer.from(value, 'base64url').toString()) as {
+      at: string;
+      id: string;
+    };
+    if (
+      !/^\d{4}-\d{2}-\d{2}T/.test(decoded.at) ||
+      !/^[\da-f-]{36}$/i.test(decoded.id) ||
+      !Number.isFinite(Date.parse(decoded.at))
+    )
+      throw new Error();
+    return decoded;
+  } catch {
+    throw new WorkflowError('Invalid cursor', 400);
+  }
+}
+export function page<
+  T extends { id: string; created_at?: string | Date; createdAt?: string | Date },
+>(rows: T[], limit: number) {
+  const more = rows.length > limit,
+    items = rows.slice(0, limit),
+    last = items.at(-1);
+  return {
+    items,
+    nextCursor:
+      more && last
+        ? Buffer.from(
+            JSON.stringify({ at: last.createdAt ?? last.created_at, id: last.id }),
+          ).toString('base64url')
+        : null,
+  };
+}
+export type OrderQuery = Page & {
+  q?: string;
+  brand?: string;
+  district?: string;
+  temperature?: 'ambient' | 'chilled';
+  status?: string;
+  deferred?: boolean;
+  view?: 'live' | 'history';
+};
+export async function listOrders(db: Database, userId: string, query: OrderQuery) {
+  const user = await actor(db, userId),
+    c = cursor(query.cursor),
+    limit = query.limit ?? 25;
+  const search = query.q?.trim();
+  // Escape LIKE metacharacters: a user search is literal, never a wildcard expression.
+  const pattern = search ? `%${search.replace(/[\\%_]/g, '\\$&')}%` : null;
+  const [result] = await db.execute<{
+    rows: { id: string; created_at: string }[];
+    summary: Record<string, number>;
+    filters: Record<string, unknown>;
+  }>(sql`
+    WITH scoped AS MATERIALIZED (
+      SELECT o.*,ot.name AS outlet_name,ot.brand_id,b.name AS brand_name,ot.district_id,d.name AS district_name,d.depot_id,
+        coalesce(l.units,a.units,0)::int AS order_size,coalesce(l.weight_kg,a.weight_kg,0)::text AS weight_kg,coalesce(l.volume_m3,a.volume_m3,0)::text AS volume_m3,
+        po.decision AS latest_decision,
+        coalesce(
+          po.decision='DEFERRED' AND o.status='SUBMITTED',
+          o.status='SUBMITTED' AND o.eligible_date > o.requested_date,
+          false
+        ) AS deferred,
+        po.last_served_date,po.days_since_last_served,po.priority_as_of_date,
+        CASE WHEN po.days_since_last_served IS NULL THEN 'UNKNOWN' ELSE 'SNAPSHOT' END AS history_status,
+        po.priority_source AS history_source,po.reason_code AS deferral_reason,
+        coalesce(po.next_eligible_date::text, o.eligible_date::text) AS next_eligible_date
+      FROM orders o JOIN outlets ot ON ot.id=o.outlet_id JOIN brands b ON b.id=ot.brand_id JOIN districts d ON d.id=ot.district_id
+      LEFT JOIN order_aggregates a ON a.order_id=o.id
+      LEFT JOIN LATERAL (SELECT sum(quantity)::int AS units,sum(quantity*unit_weight_kg) AS weight_kg,sum(quantity*unit_volume_m3) AS volume_m3 FROM order_lines WHERE order_id=o.id) l ON true
+      LEFT JOIN LATERAL (
+        SELECT po.*
+        FROM plan_orders po
+        JOIN plans p ON p.id=po.plan_id
+        JOIN planning_contexts pc ON pc.id=p.context_id
+        WHERE po.order_id=o.id
+        ORDER BY
+          CASE WHEN po.decision='DEFERRED' THEN 0 ELSE 1 END,
+          pc.operating_date DESC,
+          po.created_at DESC,
+          po.id DESC
+        LIMIT 1
+      ) po ON true
+      WHERE ${orderScope(user)} AND (${query.depot ?? null}::text IS NULL OR d.depot_id=${query.depot ?? null})
+    ), filtered AS MATERIALIZED (
+      SELECT * FROM scoped WHERE (${pattern}::text IS NULL OR id::text ILIKE ${pattern} OR public_reference ILIKE ${pattern} OR outlet_name ILIKE ${pattern} OR outlet_id ILIKE ${pattern})
+      AND (${query.brand ?? null}::text IS NULL OR brand_id=${query.brand ?? null})
+      AND (${query.district ?? null}::text IS NULL OR district_id=${query.district ?? null})
+      AND (${query.temperature ?? null}::text IS NULL OR temperature_requirement::text=${query.temperature ?? null})
+      AND (${query.status ?? null}::text IS NULL OR status::text=${query.status ?? null})
+      AND (${query.view ?? null}::text IS NULL OR (${query.view ?? null}='live' AND status IN ('DRAFT','SUBMITTED')) OR (${query.view ?? null}='history' AND status NOT IN ('DRAFT','SUBMITTED')))
+      AND (${query.deferred ?? null}::boolean IS NULL OR deferred=${query.deferred ?? null})
+    ) SELECT
+      coalesce((SELECT jsonb_agg(to_jsonb(r) ORDER BY r.created_at DESC,r.id DESC) FROM (SELECT * FROM filtered WHERE (${c?.at ?? null}::timestamptz IS NULL OR (created_at,id)<(${c?.at ?? null}::timestamptz,${c?.id ?? null}::uuid)) ORDER BY created_at DESC,id DESC LIMIT ${limit + 1}) r),'[]') AS rows,
+      (SELECT jsonb_build_object('total',count(*)::int,'chilled',count(*) FILTER (WHERE temperature_requirement='chilled')::int,'ambient',count(*) FILTER (WHERE temperature_requirement='ambient')::int,'fresh',count(*) FILTER (WHERE brand_id='Fresh')::int,'textile',count(*) FILTER (WHERE brand_id='Style')::int,'fragile',count(*) FILTER (WHERE brand_id='Tech')::int,'deferred',count(*) FILTER (WHERE deferred)::int) FROM filtered) AS summary,
+      jsonb_build_object('brands',coalesce((SELECT jsonb_agg(to_jsonb(b) ORDER BY b.name) FROM (SELECT DISTINCT brand_id AS id,brand_name AS name FROM scoped) b),'[]'),
+        'districts',coalesce((SELECT jsonb_agg(to_jsonb(d) ORDER BY d.name) FROM (SELECT DISTINCT district_id AS id,district_name AS name FROM scoped) d),'[]'),
+        'statuses',coalesce((SELECT jsonb_agg(status ORDER BY status) FROM (SELECT DISTINCT status FROM scoped) s),'[]')) AS filters
+  `);
+  return { ...page(result!.rows, limit), summary: result!.summary, filters: result!.filters };
+}
+export async function referenceStores(db: Database, userId: string) {
+  const user = await actor(db, userId);
+  if (user.role !== 'DISPATCHER') throw new WorkflowError('Dispatcher only', 403);
+  return [
+    ...(await db.execute(
+      sql`SELECT o.*,b.name AS brand_name,d.name AS district_name,d.depot_id FROM outlets o JOIN brands b ON b.id=o.brand_id JOIN districts d ON d.id=o.district_id ORDER BY o.name NULLS LAST,o.id`,
+    )),
+  ];
+}
+export async function referenceFleet(db: Database, userId: string) {
+  const user = await actor(db, userId);
+  if (user.role !== 'DISPATCHER') throw new WorkflowError('Dispatcher only', 403);
+  return [...(await db.execute(sql`SELECT v.* FROM vehicles v ORDER BY v.depot_id,v.id`))];
+}
+export async function orderDetail(db: Database, userId: string, id: string) {
+  const user = await actor(db, userId);
+  await assertOrderScope(db, user, id);
+  const [result] = await db.execute<{ data: Record<string, unknown> }>(
+    sql`SELECT jsonb_build_object('order',to_jsonb(o) || jsonb_build_object(
+      'deferred', coalesce(
+        EXISTS(SELECT 1 FROM plan_orders po WHERE po.order_id=o.id AND po.decision='DEFERRED'),
+        o.eligible_date > o.requested_date,
+        false
+      ),
+      'next_eligible_date', coalesce(
+        (SELECT po.next_eligible_date::text FROM plan_orders po JOIN plans p ON p.id=po.plan_id JOIN planning_contexts pc ON pc.id=p.context_id WHERE po.order_id=o.id AND po.decision='DEFERRED' ORDER BY pc.operating_date DESC,po.created_at DESC,po.id DESC LIMIT 1),
+        CASE WHEN o.eligible_date > o.requested_date THEN o.eligible_date::text ELSE NULL END
+      ),
+      'deferral_reason', (SELECT po.rationale FROM plan_orders po JOIN plans p ON p.id=po.plan_id JOIN planning_contexts pc ON pc.id=p.context_id WHERE po.order_id=o.id AND po.decision='DEFERRED' ORDER BY pc.operating_date DESC,po.created_at DESC,po.id DESC LIMIT 1)
+    ),'outlet',(SELECT to_jsonb(ot)||jsonb_build_object('brand_name',b.name,'district_name',d.name,'depot_id',d.depot_id) FROM outlets ot JOIN brands b ON b.id=ot.brand_id JOIN districts d ON d.id=ot.district_id WHERE ot.id=o.outlet_id),'lines',coalesce((SELECT jsonb_agg(to_jsonb(l) ORDER BY l.line_number) FROM order_lines l WHERE l.order_id=o.id),'[]'),'aggregate',(SELECT to_jsonb(a) FROM order_aggregates a WHERE a.order_id=o.id),'decisions',coalesce((SELECT jsonb_agg(to_jsonb(po)||jsonb_build_object('plan_status',p.status,'operating_date',c.operating_date) ORDER BY c.operating_date DESC,po.created_at DESC,po.id DESC) FROM plan_orders po JOIN plans p ON p.id=po.plan_id JOIN planning_contexts c ON c.id=p.context_id WHERE po.order_id=o.id AND (${user.role}='DISPATCHER' OR p.status<>'DRAFT' OR po.decision='DEFERRED')),'[]'),'stops',coalesce((SELECT jsonb_agg(to_jsonb(s)||jsonb_build_object('trip_status',t.status,'vehicle_id',t.vehicle_id,'load_id',t.id,'driver_name',(SELECT display_name FROM users WHERE id=t.driver_id)) ORDER BY p.created_at,s.sequence) FROM trip_stops s JOIN trips t ON t.id=s.trip_id JOIN plans p ON p.id=t.plan_id WHERE s.order_id=o.id AND p.status<>'DRAFT'),'[]'),'attempts',coalesce((SELECT jsonb_agg(to_jsonb(a)||jsonb_build_object('receipt',(SELECT to_jsonb(r) FROM receipts r WHERE r.attempt_id=a.id),'lines',(SELECT jsonb_agg(to_jsonb(l)) FROM delivery_line_records l WHERE l.attempt_id=a.id))) FROM delivery_attempts a WHERE a.order_id=o.id),'[]'),'issues',coalesce((SELECT jsonb_agg(to_jsonb(i)) FROM issues i WHERE i.order_id=o.id),'[]'),'predictionStatus','UNAVAILABLE') AS data FROM orders o WHERE o.id=${id}`,
+  );
+  return result!.data;
+}
+export async function catalog(db: Database, userId: string, requestedDepot?: string) {
+  const user = await actor(db, userId);
+  if (user.role !== 'STORE_MANAGER' && user.role !== 'DISPATCHER')
+    throw new WorkflowError('Catalogue is not available to this role', 403);
+  let depot = requestedDepot;
+  if (user.role === 'STORE_MANAGER') {
+    const [store] = await db.execute<{ brand_id: string; depot_id: string }>(
+      sql`SELECT o.brand_id,d.depot_id FROM outlets o JOIN districts d ON d.id=o.district_id WHERE o.id=${user.outlet_id}`,
+    );
+    if (!store) throw new WorkflowError('Outlet not found', 404);
+    depot = store.depot_id;
+  }
+  depot ??= 'Peliyagoda';
+  return [
+    ...(await db.execute(
+      sql`SELECT p.id,p.brand_id,p.sku,p.name,p.description,p.image_url,p.max_order_quantity,p.ordering_unit,p.temperature_requirement,p.unit_weight_kg::text,p.unit_volume_m3::text,p.estimated_unit_value_lkr::text,coalesce(pi.available_quantity,0)::int AS available_quantity,${depot}::depot AS inventory_depot FROM products p LEFT JOIN product_inventory pi ON pi.product_id=p.id AND pi.depot_id=${depot} WHERE p.is_active AND (${user.role}='DISPATCHER' OR p.brand_id=(SELECT o.brand_id FROM outlets o WHERE o.id=${user.outlet_id})) ORDER BY p.brand_id,p.sku`,
+    )),
+  ];
+}
+export async function storeVehicles(db: Database, userId: string) {
+  const user = await actor(db, userId);
+  if (user.role !== 'STORE_MANAGER') throw new WorkflowError('Store workspace only', 403);
+  return [
+    ...(await db.execute(sql`SELECT DISTINCT t.id AS load_id,t.vehicle_id,t.status AS trip_status,u.display_name AS driver_name,v.type AS vehicle_type,c.operating_date::text
+    FROM trips t JOIN trip_stops s ON s.trip_id=t.id JOIN orders o ON o.id=s.order_id JOIN plans p ON p.id=t.plan_id JOIN planning_contexts c ON c.id=p.context_id JOIN users u ON u.id=t.driver_id JOIN vehicles v ON v.id=t.vehicle_id
+    WHERE o.outlet_id=${user.outlet_id} AND p.status<>'DRAFT' ORDER BY c.operating_date::text DESC,t.id DESC`)),
+  ];
+}
+export async function storeProfile(db: Database, userId: string) {
+  const user = await actor(db, userId);
+  if (user.role !== 'STORE_MANAGER') throw new WorkflowError('Store workspace only', 403);
+  const [profile] =
+    await db.execute(sql`SELECT ot.id,ot.name,b.name AS brand_name,ot.brand_id,d.depot_id,
+    (SELECT jsonb_build_object('total',count(orders.id)::int,'chilled',count(orders.id) FILTER (WHERE temperature_requirement='chilled')::int,'fresh',count(orders.id) FILTER (WHERE ot.brand_id='Fresh')::int,'fragile',count(orders.id) FILTER (WHERE ot.brand_id='Tech')::int) FROM orders WHERE outlet_id=ot.id AND created_at >= (date_trunc('month',now() AT TIME ZONE 'Asia/Colombo') AT TIME ZONE 'Asia/Colombo') AND created_at < ((date_trunc('month',now() AT TIME ZONE 'Asia/Colombo') + interval '1 month') AT TIME ZONE 'Asia/Colombo')) AS monthly_summary
+    FROM outlets ot JOIN brands b ON b.id=ot.brand_id JOIN districts d ON d.id=ot.district_id WHERE ot.id=${user.outlet_id}`);
+  if (!profile) throw new WorkflowError('Outlet not found', 404);
+  return profile;
+}
+export async function listTrips(db: Database, userId: string, query: Page) {
+  const user = await actor(db, userId),
+    c = cursor(query.cursor),
+    limit = query.limit ?? 25;
+  const term = query.q?.trim();
+  const pattern = term ? `%${term.replace(/[\\%_]/g, '\\$&')}%` : null;
+  const rows = await db.execute<{ id: string; created_at: string }>(
+    sql`SELECT t.*,
+      (SELECT count(*)::int FROM trip_stops s WHERE s.trip_id=t.id) AS stops_count,
+      CASE WHEN EXISTS(SELECT 1 FROM trip_stops s JOIN orders o ON o.id=s.order_id WHERE s.trip_id=t.id AND o.temperature_requirement='chilled') THEN 'chilled' ELSE 'ambient' END AS temperature_requirement,
+      (SELECT min(planned_depart_at) FROM trip_stops s WHERE s.trip_id=t.id) AS planned_departure_at,
+      p.created_at,p.depot_id,p.version AS plan_version,c.operating_date::text,t.id AS load_id,driver.display_name AS driver_name,m.status AS manifest_status,
+      coalesce(t.vehicle_type, v.type) AS vehicle_type,
+      coalesce(t.vehicle_temperature, v.temp) AS vehicle_temp
+      FROM trips t JOIN plans p ON p.id=t.plan_id JOIN planning_contexts c ON c.id=p.context_id LEFT JOIN load_manifests m ON m.trip_id=t.id JOIN users driver ON driver.id=t.driver_id LEFT JOIN vehicles v ON v.id=t.vehicle_id WHERE p.status<>'DRAFT' AND (${pattern}::text IS NULL OR t.id::text ILIKE ${pattern} OR t.vehicle_id ILIKE ${pattern} OR driver.display_name ILIKE ${pattern} OR EXISTS (SELECT 1 FROM trip_stops ts JOIN orders o ON o.id=ts.order_id WHERE ts.trip_id=t.id AND (o.id::text ILIKE ${pattern} OR o.public_reference ILIKE ${pattern}))) AND (${user.role}='DISPATCHER' OR (${user.role}='LOADER' AND p.depot_id=${user.depot_id}) OR (${user.role}='DRIVER' AND t.driver_id=${user.id})) AND (${query.depot ?? null}::text IS NULL OR p.depot_id=${query.depot ?? null}) AND (${c?.at ?? null}::timestamptz IS NULL OR (p.created_at,t.id)<(${c?.at ?? null}::timestamptz,${c?.id ?? null}::uuid)) ORDER BY p.created_at DESC,t.id DESC LIMIT ${limit + 1}`,
+  );
+  return page([...rows], limit);
+}
+export async function tripDetail(db: Database, userId: string, id: string) {
+  const user = await actor(db, userId);
+  const [trip] = await db.execute<{ id: string; plan_id: string; version: number }>(
+    sql`SELECT t.*,t.id AS load_id,driver.display_name AS driver_name,coalesce(t.vehicle_type, v.type) AS vehicle_type,coalesce(t.vehicle_temperature, v.temp) AS vehicle_temp,p.version,p.depot_id,c.operating_date::text FROM trips t JOIN plans p ON p.id=t.plan_id JOIN planning_contexts c ON c.id=p.context_id JOIN users driver ON driver.id=t.driver_id LEFT JOIN vehicles v ON v.id=t.vehicle_id WHERE t.id=${id} AND p.status<>'DRAFT' AND (${user.role}='DISPATCHER' OR (${user.role}='LOADER' AND p.depot_id=${user.depot_id}) OR (${user.role}='DRIVER' AND t.driver_id=${user.id}))`,
+  );
+  if (!trip) throw new WorkflowError('Trip not found', 404);
+  const stops = await db.execute(
+    sql`SELECT s.*,o.public_reference,o.format,o.temperature_requirement,ot.name AS outlet_name,ot.address,ot.latitude::text,ot.longitude::text,ot.contact,coalesce((SELECT jsonb_agg(to_jsonb(l) ORDER BY l.line_number) FROM order_lines l WHERE l.order_id=o.id),'[]') AS lines,(SELECT to_jsonb(a) FROM order_aggregates a WHERE a.order_id=o.id) AS aggregate,(SELECT to_jsonb(l) FROM load_records l WHERE l.stop_id=s.id) AS load,(SELECT jsonb_agg(to_jsonb(l)) FROM load_line_records l WHERE l.stop_id=s.id) AS load_lines,(SELECT to_jsonb(a) FROM delivery_attempts a WHERE a.stop_id=s.id) AS attempt FROM trip_stops s JOIN orders o ON o.id=s.order_id JOIN outlets ot ON ot.id=o.outlet_id WHERE s.trip_id=${id} ORDER BY s.sequence`,
+  );
+  const [manifest] = await db.execute(sql`SELECT * FROM load_manifests WHERE trip_id=${id}`);
+  const [inspection] = await db.execute(sql`SELECT * FROM trip_inspections WHERE trip_id=${id}`);
+  const [closure] = await db.execute(sql`SELECT * FROM trip_closures WHERE trip_id=${id}`);
+  return {
+    trip,
+    stops: [...stops],
+    packingStopIds: [...stops].reverse().map((s) => s.id),
+    manifest: manifest ?? null,
+    inspection: inspection ?? null,
+    closure: closure ?? null,
+    predictionStatus: 'UNAVAILABLE',
+  };
+}
+export async function planningRead(db: Database, userId: string, planId: string) {
+  const user = await actor(db, userId);
+  if (user.role !== 'DISPATCHER') throw new WorkflowError('Dispatcher only', 403);
+  const [plan] = await db.execute(
+    sql`SELECT p.*,c.operating_date::text,c.kind FROM plans p JOIN planning_contexts c ON c.id=p.context_id WHERE p.id=${planId}`,
+  );
+  if (!plan) throw new WorkflowError('Plan not found', 404);
+  const decisions = await db.execute(
+    sql`SELECT * FROM plan_orders WHERE plan_id=${planId} ORDER BY order_id`,
+  );
+  const trips = await db.execute(
+    sql`SELECT t.*,t.id AS load_id,driver.display_name AS driver_name,m.status AS manifest_status,u.display_name AS loader_name,
+      ${departureBlockReasonSql(sql`t.id`)} AS dispatch_block_reason,
+      ${departureBlockReasonSql(sql`t.id`)} IS NULL AS dispatch_ready,
+      EXISTS(SELECT 1 FROM trip_inspections i WHERE i.trip_id=t.id) AS inspection_recorded,
+      coalesce((SELECT jsonb_agg(to_jsonb(s) || jsonb_build_object('public_reference',o.public_reference,'outlet_name',ot.name,'temperature_requirement',o.temperature_requirement) ORDER BY sequence) FROM trip_stops s JOIN orders o ON o.id=s.order_id JOIN outlets ot ON ot.id=o.outlet_id WHERE s.trip_id=t.id),'[]') AS stops
+      FROM trips t JOIN users driver ON driver.id=t.driver_id LEFT JOIN load_manifests m ON m.trip_id=t.id LEFT JOIN users u ON u.id=coalesce(m.signed_by,(SELECT e.actor_id FROM audit_events e WHERE e.entity_type='trip' AND e.entity_id=t.id::text AND e.action='LOAD_STARTED' ORDER BY e.created_at DESC LIMIT 1),(SELECT e.actor_id FROM audit_events e JOIN trip_stops ts ON ts.id::text=e.entity_id WHERE ts.trip_id=t.id AND e.entity_type='stop' AND e.action='ORDER_LOADED' ORDER BY e.created_at ASC LIMIT 1))
+      WHERE t.plan_id=${planId} ORDER BY t.vehicle_id,t.trip_number`,
+  );
+  return { plan, decisions: [...decisions], trips: [...trips] };
+}
+export async function listIssues(db: Database, userId: string, query: Page) {
+  const user = await actor(db, userId),
+    c = cursor(query.cursor),
+    limit = query.limit ?? 25;
+  const rows = await db.execute<{ id: string; created_at: string }>(
+    sql`SELECT i.*,o.public_reference FROM issues i JOIN orders o ON o.id=i.order_id JOIN outlets ot ON ot.id=o.outlet_id JOIN districts d ON d.id=ot.district_id WHERE ${orderScope(user)} AND (${query.depot ?? null}::text IS NULL OR d.depot_id=${query.depot ?? null}) AND (${c?.at ?? null}::timestamptz IS NULL OR (i.created_at,i.id)<(${c?.at ?? null}::timestamptz,${c?.id ?? null}::uuid)) ORDER BY i.created_at DESC,i.id DESC LIMIT ${limit + 1}`,
+  );
+  return page([...rows], limit);
+}
+export async function auditHistory(db: Database, userId: string, query: Page) {
+  const user = await actor(db, userId);
+  if (user.role !== 'DISPATCHER') throw new WorkflowError('Dispatcher only', 403);
+  const c = cursor(query.cursor),
+    limit = query.limit ?? 25;
+  const rows = await db.execute<{ id: string; created_at: string }>(
+    sql`SELECT id,actor_id,action,entity_type,entity_id,details,created_at FROM audit_events WHERE (${c?.at ?? null}::timestamptz IS NULL OR (created_at,id)<(${c?.at ?? null}::timestamptz,${c?.id ?? null}::uuid)) ORDER BY created_at DESC,id DESC LIMIT ${limit + 1}`,
+  );
+  return page([...rows], limit);
+}

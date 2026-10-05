@@ -20,8 +20,10 @@ export function FormField({
   onChange,
 }: FormFieldProps) {
   return (
-    <div className="field">
-      <label htmlFor={id}>{label}</label>
+    <div className="flex flex-col gap-2">
+      <label htmlFor={id} className="text-[#555555] text-xs leading-[1.4]">
+        {label}
+      </label>
       <input
         id={id}
         name={id}
@@ -31,6 +33,7 @@ export function FormField({
         autoComplete={autoComplete}
         required
         onChange={onChange}
+        className="w-full min-h-[56px] px-[18px] text-primary bg-surface border border-border rounded-control outline-none placeholder:text-[#999999] focus-visible:bg-white focus-visible:border-primary focus-visible:outline-3 focus-visible:outline-chilled focus-visible:outline-offset-3"
       />
     </div>
   );

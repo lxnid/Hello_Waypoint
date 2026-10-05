@@ -3,7 +3,7 @@ import { compare } from 'bcryptjs';
 import { and, eq, gt, isNull, sql as sqlExpr } from 'drizzle-orm';
 import type { User } from '@waypoint/contracts';
 import type { Database } from '../../db/client.js';
-import { sessions, users } from '../../db/schema.js';
+import { districts, outlets, sessions, users } from '../../db/schema.js';
 
 export type SessionIdentity = { user: User; sessionId: string; expiresAt: Date };
 
@@ -26,7 +26,7 @@ export async function authenticate(
   const expiresAt = new Date(Date.now() + ttlSeconds * 1000);
   const sessionId = randomUUID();
   await db.insert(sessions).values({ id: sessionId, userId: record.id, expiresAt });
-  return { user: publicUser(record), sessionId, expiresAt };
+  return { user: await publicUser(db, record), sessionId, expiresAt };
 }
 
 export async function getSession(
@@ -49,7 +49,7 @@ export async function getSession(
     )
     .limit(1);
   return result
-    ? { sessionId, expiresAt: result.session.expiresAt, user: publicUser(result.user) }
+    ? { sessionId, expiresAt: result.session.expiresAt, user: await publicUser(db, result.user) }
     : null;
 }
 
@@ -57,13 +57,23 @@ export async function revokeSession(db: Database, sessionId: string): Promise<vo
   await db.update(sessions).set({ revokedAt: new Date() }).where(eq(sessions.id, sessionId));
 }
 
-function publicUser(record: typeof users.$inferSelect): User {
+async function publicUser(db: Database, record: typeof users.$inferSelect): Promise<User> {
+  let depot = record.depotId;
+  if (record.outletId) {
+    const [scope] = await db
+      .select({ depot: districts.depotId })
+      .from(outlets)
+      .innerJoin(districts, eq(outlets.districtId, districts.id))
+      .where(eq(outlets.id, record.outletId));
+    depot = scope?.depot ?? null;
+  }
   return {
     id: record.id,
     email: record.email,
     displayName: record.displayName,
     role: record.role,
-    depot: record.depot,
+    depot,
+    authorizedDepots: record.role === 'DISPATCHER' ? ['Peliyagoda', 'Kandy'] : depot ? [depot] : [],
     outletId: record.outletId,
   };
 }

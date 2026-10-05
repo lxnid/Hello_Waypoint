@@ -1,121 +1,121 @@
-outlet_id,brand,district,depot,dock_type,parking_constraint,mall_window,window_open_time,window_close_time
-OUT001,Fresh,Colombo,Peliyagoda,street,van_only,,05:00,07:30
-OUT002,Fresh,Colombo,Peliyagoda,street,van_only,,05:30,08:00
-OUT003,Fresh,Colombo,Peliyagoda,street,van_only,,05:00,07:30
-OUT004,Fresh,Colombo,Peliyagoda,street,normal,,05:30,08:00
-OUT005,Fresh,Colombo,Peliyagoda,rear_dock,normal,,04:00,07:45
-OUT006,Fresh,Colombo,Peliyagoda,street,normal,,03:00,08:00
-OUT007,Fresh,Colombo,Peliyagoda,street,normal,,05:30,08:00
-OUT008,Fresh,Colombo,Peliyagoda,rear_dock,normal,,05:00,07:30
-OUT009,Fresh,Colombo,Peliyagoda,rear_dock,normal,,04:00,07:45
-OUT010,Fresh,Colombo,Peliyagoda,rear_dock,normal,,05:00,07:30
-OUT011,Fresh,Colombo,Peliyagoda,rear_dock,normal,,03:00,08:00
-OUT012,Fresh,Colombo,Peliyagoda,rear_dock,normal,,05:30,08:00
-OUT013,Fresh,Colombo,Peliyagoda,rear_dock,normal,,05:00,07:30
-OUT014,Fresh,Colombo,Peliyagoda,street,normal,,05:30,08:00
-OUT015,Style,Colombo,Peliyagoda,mall_bay,mall_dock,09:00-11:00,09:00,11:00
-OUT016,Style,Colombo,Peliyagoda,mall_bay,mall_dock,09:00-11:00,09:00,11:00
-OUT017,Style,Colombo,Peliyagoda,mall_bay,mall_dock,10:30-12:30,10:30,12:30
-OUT018,Style,Colombo,Peliyagoda,mall_bay,mall_dock,10:30-12:30,10:30,12:30
-OUT019,Style,Colombo,Peliyagoda,rear_dock,normal,,09:00,17:00
-OUT020,Style,Colombo,Peliyagoda,street,normal,,09:00,17:00
-OUT021,Tech,Colombo,Peliyagoda,mall_bay,mall_dock,10:30-12:30,10:30,12:30
-OUT022,Tech,Colombo,Peliyagoda,mall_bay,mall_dock,10:00-12:00,10:00,12:00
-OUT023,Tech,Colombo,Peliyagoda,street,normal,,09:00,17:00
-OUT024,Tech,Colombo,Peliyagoda,rear_dock,normal,,09:00,17:00
-OUT025,Fresh,Gampaha,Peliyagoda,rear_dock,normal,,05:30,08:00
-OUT026,Fresh,Gampaha,Peliyagoda,rear_dock,normal,,03:00,08:00
-OUT027,Fresh,Gampaha,Peliyagoda,street,normal,,05:00,07:30
-OUT028,Fresh,Gampaha,Peliyagoda,street,normal,,03:00,08:00
-OUT029,Fresh,Gampaha,Peliyagoda,rear_dock,normal,,05:30,08:00
-OUT030,Fresh,Gampaha,Peliyagoda,rear_dock,normal,,03:00,08:00
-OUT031,Fresh,Gampaha,Peliyagoda,rear_dock,normal,,03:00,08:00
-OUT032,Fresh,Gampaha,Peliyagoda,rear_dock,normal,,04:00,07:45
-OUT033,Fresh,Gampaha,Peliyagoda,rear_dock,normal,,05:30,08:00
-OUT034,Fresh,Gampaha,Peliyagoda,rear_dock,normal,,05:00,07:30
-OUT035,Style,Gampaha,Peliyagoda,mall_bay,mall_dock,10:30-12:30,10:30,12:30
-OUT036,Style,Gampaha,Peliyagoda,mall_bay,mall_dock,10:30-12:30,10:30,12:30
-OUT037,Style,Gampaha,Peliyagoda,street,normal,,09:00,17:00
-OUT038,Tech,Gampaha,Peliyagoda,street,normal,,09:00,17:00
-OUT039,Tech,Gampaha,Peliyagoda,rear_dock,normal,,09:00,17:00
-OUT040,Fresh,Kalutara,Peliyagoda,street,normal,,03:00,08:00
-OUT041,Fresh,Kalutara,Peliyagoda,rear_dock,normal,,05:00,07:30
-OUT042,Fresh,Kalutara,Peliyagoda,rear_dock,normal,,03:00,08:00
-OUT043,Fresh,Kalutara,Peliyagoda,street,normal,,05:00,07:30
-OUT044,Fresh,Kalutara,Peliyagoda,rear_dock,normal,,03:00,08:00
-OUT045,Fresh,Kalutara,Peliyagoda,rear_dock,normal,,03:00,08:00
-OUT046,Fresh,Kalutara,Peliyagoda,rear_dock,normal,,05:00,07:30
-OUT047,Style,Kalutara,Peliyagoda,street,normal,,09:00,17:00
-OUT048,Style,Kalutara,Peliyagoda,rear_dock,normal,,09:00,17:00
-OUT049,Tech,Kalutara,Peliyagoda,street,normal,,09:00,17:00
-OUT050,Fresh,Galle,Peliyagoda,rear_dock,normal,,05:30,08:00
-OUT051,Fresh,Galle,Peliyagoda,street,normal,,03:00,08:00
-OUT052,Fresh,Galle,Peliyagoda,street,normal,,05:00,07:30
-OUT053,Fresh,Galle,Peliyagoda,street,normal,,03:00,08:00
-OUT054,Fresh,Galle,Peliyagoda,rear_dock,normal,,05:00,07:30
-OUT055,Fresh,Galle,Peliyagoda,street,normal,,05:00,07:30
-OUT056,Style,Galle,Peliyagoda,mall_bay,mall_dock,10:00-12:00,10:00,12:00
-OUT057,Style,Galle,Peliyagoda,street,normal,,09:00,17:00
-OUT058,Tech,Galle,Peliyagoda,rear_dock,normal,,09:00,17:00
-OUT059,Fresh,Matara,Peliyagoda,rear_dock,normal,,04:00,07:45
-OUT060,Fresh,Matara,Peliyagoda,rear_dock,normal,,03:00,08:00
-OUT061,Fresh,Matara,Peliyagoda,rear_dock,normal,,05:00,07:30
-OUT062,Fresh,Matara,Peliyagoda,rear_dock,normal,,05:30,08:00
-OUT063,Style,Matara,Peliyagoda,street,normal,,09:00,17:00
-OUT064,Tech,Matara,Peliyagoda,rear_dock,normal,,09:00,17:00
-OUT065,Fresh,Kurunegala,Peliyagoda,rear_dock,normal,,05:30,08:00
-OUT066,Fresh,Kurunegala,Peliyagoda,rear_dock,normal,,04:00,07:45
-OUT067,Fresh,Kurunegala,Peliyagoda,rear_dock,normal,,05:00,07:30
-OUT068,Fresh,Kurunegala,Peliyagoda,rear_dock,normal,,03:00,08:00
-OUT069,Fresh,Kurunegala,Peliyagoda,rear_dock,normal,,05:30,08:00
-OUT070,Style,Kurunegala,Peliyagoda,rear_dock,normal,,09:00,17:00
-OUT071,Style,Kurunegala,Peliyagoda,street,normal,,09:00,17:00
-OUT072,Tech,Kurunegala,Peliyagoda,rear_dock,normal,,09:00,17:00
-OUT073,Fresh,Puttalam,Peliyagoda,rear_dock,normal,,03:00,08:00
-OUT074,Fresh,Puttalam,Peliyagoda,rear_dock,normal,,05:30,08:00
-OUT075,Fresh,Puttalam,Peliyagoda,rear_dock,normal,,03:00,08:00
-OUT076,Fresh,Kandy,Kandy,street,van_only,,03:00,08:00
-OUT077,Fresh,Kandy,Kandy,street,van_only,,05:00,07:30
-OUT078,Fresh,Kandy,Kandy,street,van_only,,03:00,08:00
-OUT079,Fresh,Kandy,Kandy,street,van_only,,04:00,07:45
-OUT080,Fresh,Kandy,Kandy,street,van_only,,05:30,08:00
-OUT081,Fresh,Kandy,Kandy,street,van_only,,03:00,08:00
-OUT082,Fresh,Kandy,Kandy,street,van_only,,03:00,08:00
-OUT083,Fresh,Kandy,Kandy,street,van_only,,04:00,07:45
-OUT084,Fresh,Kandy,Kandy,rear_dock,normal,,05:30,08:00
-OUT085,Fresh,Kandy,Kandy,rear_dock,normal,,05:00,07:30
-OUT086,Fresh,Kandy,Kandy,rear_dock,normal,,03:00,08:00
-OUT087,Fresh,Kandy,Kandy,rear_dock,normal,,03:00,08:00
-OUT088,Style,Kandy,Kandy,street,van_only,,09:00,17:00
-OUT089,Style,Kandy,Kandy,mall_bay,mall_dock,10:30-12:30,10:30,12:30
-OUT090,Style,Kandy,Kandy,mall_bay,mall_dock,10:30-12:30,10:30,12:30
-OUT091,Style,Kandy,Kandy,street,normal,,09:00,17:00
-OUT092,Style,Kandy,Kandy,street,normal,,09:00,17:00
-OUT093,Tech,Kandy,Kandy,street,van_only,,09:00,17:00
-OUT094,Tech,Kandy,Kandy,mall_bay,mall_dock,09:00-11:00,09:00,11:00
-OUT095,Tech,Kandy,Kandy,rear_dock,normal,,09:00,17:00
-OUT096,Fresh,Matale,Kandy,rear_dock,normal,,05:30,08:00
-OUT097,Fresh,Matale,Kandy,street,normal,,03:00,08:00
-OUT098,Fresh,Matale,Kandy,rear_dock,normal,,03:00,08:00
-OUT099,Fresh,Matale,Kandy,rear_dock,normal,,05:00,07:30
-OUT100,Fresh,Matale,Kandy,rear_dock,normal,,03:00,08:00
-OUT101,Fresh,Matale,Kandy,rear_dock,normal,,05:00,07:30
-OUT102,Style,Matale,Kandy,street,normal,,09:00,17:00
-OUT103,Tech,Matale,Kandy,rear_dock,normal,,09:00,17:00
-OUT104,Fresh,Nuwara Eliya,Kandy,rear_dock,normal,,03:00,08:00
-OUT105,Fresh,Nuwara Eliya,Kandy,rear_dock,normal,,05:00,07:30
-OUT106,Fresh,Nuwara Eliya,Kandy,rear_dock,normal,,05:30,08:00
-OUT107,Fresh,Nuwara Eliya,Kandy,rear_dock,normal,,03:00,08:00
-OUT108,Fresh,Nuwara Eliya,Kandy,rear_dock,normal,,04:00,07:45
-OUT109,Style,Nuwara Eliya,Kandy,rear_dock,normal,,09:00,17:00
-OUT110,Fresh,Badulla,Kandy,rear_dock,normal,,03:00,08:00
-OUT111,Fresh,Badulla,Kandy,rear_dock,normal,,03:00,08:00
-OUT112,Fresh,Badulla,Kandy,rear_dock,normal,,04:00,07:45
-OUT113,Fresh,Badulla,Kandy,rear_dock,normal,,05:30,08:00
-OUT114,Style,Badulla,Kandy,rear_dock,normal,,09:00,17:00
-OUT115,Tech,Badulla,Kandy,street,normal,,09:00,17:00
-OUT116,Fresh,Kegalle,Kandy,rear_dock,normal,,05:00,07:30
-OUT117,Fresh,Kegalle,Kandy,rear_dock,normal,,04:00,07:45
-OUT118,Fresh,Kegalle,Kandy,street,normal,,04:00,07:45
-OUT119,Fresh,Kegalle,Kandy,rear_dock,normal,,03:00,08:00
-OUT120,Style,Kegalle,Kandy,rear_dock,normal,,09:00,17:00
+outlet_id,brand,district,depot,name,address,latitude,longitude,contact,dock_type,parking_constraint,mall_window,window_open_time,window_close_time
+OUT001,Fresh,Colombo,Peliyagoda,Colombo 1 - Waypoint Fresh,"No. 12, Galle Road, Colombo",6.9025000,79.8378000,078 342 1000,street,van_only,"",05:00,07:30
+OUT002,Fresh,Colombo,Peliyagoda,Colombo 2 - Waypoint Fresh,"No. 29, Duplication Road, Colombo",6.9107000,79.8612000,078 342 1073,street,van_only,"",05:30,08:00
+OUT003,Fresh,Colombo,Peliyagoda,Colombo 3 - Waypoint Fresh,"No. 46, Baseline Road, Colombo",6.9189000,79.8846000,078 342 1146,street,van_only,"",05:00,07:30
+OUT004,Fresh,Colombo,Peliyagoda,Colombo 4 - Waypoint Fresh,"No. 63, Bauddhaloka Mawatha, Colombo",6.9271000,79.8534000,078 342 1219,street,normal,"",05:30,08:00
+OUT005,Fresh,Colombo,Peliyagoda,Colombo 5 - Waypoint Fresh,"No. 80, Havelock Road, Colombo",6.9353000,79.8768000,078 342 1292,rear_dock,normal,"",04:00,07:45
+OUT006,Fresh,Colombo,Peliyagoda,Colombo 1 - Waypoint Fresh,"No. 97, High Level Road, Colombo",6.9435000,79.8456000,078 342 1365,street,normal,"",03:00,08:00
+OUT007,Fresh,Colombo,Peliyagoda,Colombo 2 - Waypoint Fresh,"No. 114, Galle Road, Colombo",6.9517000,79.8690000,078 342 1438,street,normal,"",05:30,08:00
+OUT008,Fresh,Colombo,Peliyagoda,Colombo 3 - Waypoint Fresh,"No. 131, Duplication Road, Colombo",6.9025000,79.8378000,078 342 1511,rear_dock,normal,"",05:00,07:30
+OUT009,Fresh,Colombo,Peliyagoda,Colombo 4 - Waypoint Fresh,"No. 148, Baseline Road, Colombo",6.9107000,79.8612000,078 342 1584,rear_dock,normal,"",04:00,07:45
+OUT010,Fresh,Colombo,Peliyagoda,Colombo 5 - Waypoint Fresh,"No. 165, Bauddhaloka Mawatha, Colombo",6.9189000,79.8846000,078 342 1657,rear_dock,normal,"",05:00,07:30
+OUT011,Fresh,Colombo,Peliyagoda,Colombo 1 - Waypoint Fresh,"No. 182, Havelock Road, Colombo",6.9271000,79.8534000,078 342 1730,rear_dock,normal,"",03:00,08:00
+OUT012,Fresh,Colombo,Peliyagoda,Colombo 2 - Waypoint Fresh,"No. 199, High Level Road, Colombo",6.9353000,79.8768000,078 342 1803,rear_dock,normal,"",05:30,08:00
+OUT013,Fresh,Colombo,Peliyagoda,Colombo 3 - Waypoint Fresh,"No. 216, Galle Road, Colombo",6.9435000,79.8456000,078 342 1876,rear_dock,normal,"",05:00,07:30
+OUT014,Fresh,Colombo,Peliyagoda,Colombo 4 - Waypoint Fresh,"No. 233, Duplication Road, Colombo",6.9517000,79.8690000,078 342 1949,street,normal,"",05:30,08:00
+OUT015,Style,Colombo,Peliyagoda,Colombo 5 - Waypoint Style,"No. 250, Baseline Road, Colombo",6.9025000,79.8378000,078 342 2022,mall_bay,mall_dock,09:00-11:00,09:00,11:00
+OUT016,Style,Colombo,Peliyagoda,Colombo 1 - Waypoint Style,"No. 27, Bauddhaloka Mawatha, Colombo",6.9107000,79.8612000,078 342 2095,mall_bay,mall_dock,09:00-11:00,09:00,11:00
+OUT017,Style,Colombo,Peliyagoda,Colombo 2 - Waypoint Style,"No. 44, Havelock Road, Colombo",6.9189000,79.8846000,078 342 2168,mall_bay,mall_dock,10:30-12:30,10:30,12:30
+OUT018,Style,Colombo,Peliyagoda,Colombo 3 - Waypoint Style,"No. 61, High Level Road, Colombo",6.9271000,79.8534000,078 342 2241,mall_bay,mall_dock,10:30-12:30,10:30,12:30
+OUT019,Style,Colombo,Peliyagoda,Colombo 4 - Waypoint Style,"No. 78, Galle Road, Colombo",6.9353000,79.8768000,078 342 2314,rear_dock,normal,"",09:00,17:00
+OUT020,Style,Colombo,Peliyagoda,Colombo 5 - Waypoint Style,"No. 95, Duplication Road, Colombo",6.9435000,79.8456000,078 342 2387,street,normal,"",09:00,17:00
+OUT021,Tech,Colombo,Peliyagoda,Colombo 1 - Waypoint Tech,"No. 112, Baseline Road, Colombo",6.9517000,79.8690000,078 342 2460,mall_bay,mall_dock,10:30-12:30,10:30,12:30
+OUT022,Tech,Colombo,Peliyagoda,Colombo 2 - Waypoint Tech,"No. 129, Bauddhaloka Mawatha, Colombo",6.9025000,79.8378000,078 342 2533,mall_bay,mall_dock,10:00-12:00,10:00,12:00
+OUT023,Tech,Colombo,Peliyagoda,Colombo 3 - Waypoint Tech,"No. 146, Havelock Road, Colombo",6.9107000,79.8612000,078 342 2606,street,normal,"",09:00,17:00
+OUT024,Tech,Colombo,Peliyagoda,Colombo 4 - Waypoint Tech,"No. 163, High Level Road, Colombo",6.9189000,79.8846000,078 342 2679,rear_dock,normal,"",09:00,17:00
+OUT025,Fresh,Gampaha,Peliyagoda,Gampaha 5 - Waypoint Fresh,"No. 180, Ja-Ela Road, Gampaha",7.0840000,79.9861000,078 342 2752,rear_dock,normal,"",05:30,08:00
+OUT026,Fresh,Gampaha,Peliyagoda,Gampaha 1 - Waypoint Fresh,"No. 197, Kandy Road, Gampaha",7.0922000,80.0095000,078 342 2825,rear_dock,normal,"",03:00,08:00
+OUT027,Fresh,Gampaha,Peliyagoda,Gampaha 2 - Waypoint Fresh,"No. 214, Miriswatta Junction, Gampaha",7.1004000,79.9783000,078 342 2898,street,normal,"",05:00,07:30
+OUT028,Fresh,Gampaha,Peliyagoda,Gampaha 3 - Waypoint Fresh,"No. 231, Yakkala Road, Gampaha",7.1086000,80.0017000,078 342 2971,street,normal,"",03:00,08:00
+OUT029,Fresh,Gampaha,Peliyagoda,Gampaha 4 - Waypoint Fresh,"No. 248, Minuwangoda Road, Gampaha",7.0594000,79.9705000,078 342 3044,rear_dock,normal,"",05:30,08:00
+OUT030,Fresh,Gampaha,Peliyagoda,Gampaha 5 - Waypoint Fresh,"No. 25, Ja-Ela Road, Gampaha",7.0676000,79.9939000,078 342 3117,rear_dock,normal,"",03:00,08:00
+OUT031,Fresh,Gampaha,Peliyagoda,Gampaha 1 - Waypoint Fresh,"No. 42, Kandy Road, Gampaha",7.0758000,80.0173000,078 342 3190,rear_dock,normal,"",03:00,08:00
+OUT032,Fresh,Gampaha,Peliyagoda,Gampaha 2 - Waypoint Fresh,"No. 59, Miriswatta Junction, Gampaha",7.0840000,79.9861000,078 342 3263,rear_dock,normal,"",04:00,07:45
+OUT033,Fresh,Gampaha,Peliyagoda,Gampaha 3 - Waypoint Fresh,"No. 76, Yakkala Road, Gampaha",7.0922000,80.0095000,078 342 3336,rear_dock,normal,"",05:30,08:00
+OUT034,Fresh,Gampaha,Peliyagoda,Gampaha 4 - Waypoint Fresh,"No. 93, Minuwangoda Road, Gampaha",7.1004000,79.9783000,078 342 3409,rear_dock,normal,"",05:00,07:30
+OUT035,Style,Gampaha,Peliyagoda,Gampaha 5 - Waypoint Style,"No. 110, Ja-Ela Road, Gampaha",7.1086000,80.0017000,078 342 3482,mall_bay,mall_dock,10:30-12:30,10:30,12:30
+OUT036,Style,Gampaha,Peliyagoda,Gampaha 1 - Waypoint Style,"No. 127, Kandy Road, Gampaha",7.0594000,79.9705000,078 342 3555,mall_bay,mall_dock,10:30-12:30,10:30,12:30
+OUT037,Style,Gampaha,Peliyagoda,Gampaha 2 - Waypoint Style,"No. 144, Miriswatta Junction, Gampaha",7.0676000,79.9939000,078 342 3628,street,normal,"",09:00,17:00
+OUT038,Tech,Gampaha,Peliyagoda,Gampaha 3 - Waypoint Tech,"No. 161, Yakkala Road, Gampaha",7.0758000,80.0173000,078 342 3701,street,normal,"",09:00,17:00
+OUT039,Tech,Gampaha,Peliyagoda,Gampaha 4 - Waypoint Tech,"No. 178, Minuwangoda Road, Gampaha",7.0840000,79.9861000,078 342 3774,rear_dock,normal,"",09:00,17:00
+OUT040,Fresh,Kalutara,Peliyagoda,Kalutara 5 - Waypoint Fresh,"No. 195, Panadura Road, Kalutara",6.5936000,79.9763000,078 342 3847,street,normal,"",03:00,08:00
+OUT041,Fresh,Kalutara,Peliyagoda,Kalutara 1 - Waypoint Fresh,"No. 212, Galle Road, Kalutara",6.6018000,79.9451000,078 342 3920,rear_dock,normal,"",05:00,07:30
+OUT042,Fresh,Kalutara,Peliyagoda,Kalutara 2 - Waypoint Fresh,"No. 229, Nagoda Road, Kalutara",6.6100000,79.9685000,078 342 3993,rear_dock,normal,"",03:00,08:00
+OUT043,Fresh,Kalutara,Peliyagoda,Kalutara 3 - Waypoint Fresh,"No. 246, Matugama Road, Kalutara",6.5608000,79.9373000,078 342 4066,street,normal,"",05:00,07:30
+OUT044,Fresh,Kalutara,Peliyagoda,Kalutara 4 - Waypoint Fresh,"No. 23, Panadura Road, Kalutara",6.5690000,79.9607000,078 342 4139,rear_dock,normal,"",03:00,08:00
+OUT045,Fresh,Kalutara,Peliyagoda,Kalutara 5 - Waypoint Fresh,"No. 40, Galle Road, Kalutara",6.5772000,79.9841000,078 342 4212,rear_dock,normal,"",03:00,08:00
+OUT046,Fresh,Kalutara,Peliyagoda,Kalutara 1 - Waypoint Fresh,"No. 57, Nagoda Road, Kalutara",6.5854000,79.9529000,078 342 4285,rear_dock,normal,"",05:00,07:30
+OUT047,Style,Kalutara,Peliyagoda,Kalutara 2 - Waypoint Style,"No. 74, Matugama Road, Kalutara",6.5936000,79.9763000,078 342 4358,street,normal,"",09:00,17:00
+OUT048,Style,Kalutara,Peliyagoda,Kalutara 3 - Waypoint Style,"No. 91, Panadura Road, Kalutara",6.6018000,79.9451000,078 342 4431,rear_dock,normal,"",09:00,17:00
+OUT049,Tech,Kalutara,Peliyagoda,Kalutara 4 - Waypoint Tech,"No. 108, Galle Road, Kalutara",6.6100000,79.9685000,078 342 4504,street,normal,"",09:00,17:00
+OUT050,Fresh,Galle,Peliyagoda,Galle 5 - Waypoint Fresh,"No. 125, Fort Road, Galle",6.0289000,80.1976000,078 342 4577,rear_dock,normal,"",05:30,08:00
+OUT051,Fresh,Galle,Peliyagoda,Galle 1 - Waypoint Fresh,"No. 142, Main Street, Galle",6.0371000,80.2210000,078 342 4650,street,normal,"",03:00,08:00
+OUT052,Fresh,Galle,Peliyagoda,Galle 2 - Waypoint Fresh,"No. 159, Wakwella Road, Galle",6.0453000,80.2444000,078 342 4723,street,normal,"",05:00,07:30
+OUT053,Fresh,Galle,Peliyagoda,Galle 3 - Waypoint Fresh,"No. 176, Hapugala Road, Galle",6.0535000,80.2132000,078 342 4796,street,normal,"",03:00,08:00
+OUT054,Fresh,Galle,Peliyagoda,Galle 4 - Waypoint Fresh,"No. 193, Richmond Hill Road, Galle",6.0617000,80.2366000,078 342 4869,rear_dock,normal,"",05:00,07:30
+OUT055,Fresh,Galle,Peliyagoda,Galle 5 - Waypoint Fresh,"No. 210, Fort Road, Galle",6.0699000,80.2054000,078 342 4942,street,normal,"",05:00,07:30
+OUT056,Style,Galle,Peliyagoda,Galle 1 - Waypoint Style,"No. 227, Main Street, Galle",6.0781000,80.2288000,078 342 5015,mall_bay,mall_dock,10:00-12:00,10:00,12:00
+OUT057,Style,Galle,Peliyagoda,Galle 2 - Waypoint Style,"No. 244, Wakwella Road, Galle",6.0289000,80.1976000,078 342 5088,street,normal,"",09:00,17:00
+OUT058,Tech,Galle,Peliyagoda,Galle 3 - Waypoint Tech,"No. 21, Hapugala Road, Galle",6.0371000,80.2210000,078 342 5161,rear_dock,normal,"",09:00,17:00
+OUT059,Fresh,Matara,Peliyagoda,Matara 4 - Waypoint Fresh,"No. 38, Kotuwegoda Road, Matara",5.9467000,80.5784000,078 342 5234,rear_dock,normal,"",04:00,07:45
+OUT060,Fresh,Matara,Peliyagoda,Matara 5 - Waypoint Fresh,"No. 55, Rahula Road, Matara",5.9549000,80.5472000,078 342 5307,rear_dock,normal,"",03:00,08:00
+OUT061,Fresh,Matara,Peliyagoda,Matara 1 - Waypoint Fresh,"No. 72, Anagarika Dharmapala Mawatha, Matara",5.9631000,80.5706000,078 342 5380,rear_dock,normal,"",05:00,07:30
+OUT062,Fresh,Matara,Peliyagoda,Matara 2 - Waypoint Fresh,"No. 89, Hakmana Road, Matara",5.9713000,80.5394000,078 342 5453,rear_dock,normal,"",05:30,08:00
+OUT063,Style,Matara,Peliyagoda,Matara 3 - Waypoint Style,"No. 106, Kotuwegoda Road, Matara",5.9795000,80.5628000,078 342 5526,street,normal,"",09:00,17:00
+OUT064,Tech,Matara,Peliyagoda,Matara 4 - Waypoint Tech,"No. 123, Rahula Road, Matara",5.9303000,80.5316000,078 342 5599,rear_dock,normal,"",09:00,17:00
+OUT065,Fresh,Kurunegala,Peliyagoda,Kurunegala 5 - Waypoint Fresh,"No. 140, Puttalam Road, Kurunegala",7.4699000,80.3623000,078 342 5672,rear_dock,normal,"",05:30,08:00
+OUT066,Fresh,Kurunegala,Peliyagoda,Kurunegala 1 - Waypoint Fresh,"No. 157, Colombo Road, Kurunegala",7.4781000,80.3857000,078 342 5745,rear_dock,normal,"",04:00,07:45
+OUT067,Fresh,Kurunegala,Peliyagoda,Kurunegala 2 - Waypoint Fresh,"No. 174, Kandy Road, Kurunegala",7.4863000,80.3545000,078 342 5818,rear_dock,normal,"",05:00,07:30
+OUT068,Fresh,Kurunegala,Peliyagoda,Kurunegala 3 - Waypoint Fresh,"No. 191, Negombo Road, Kurunegala",7.4945000,80.3779000,078 342 5891,rear_dock,normal,"",03:00,08:00
+OUT069,Fresh,Kurunegala,Peliyagoda,Kurunegala 4 - Waypoint Fresh,"No. 208, Dambulla Road, Kurunegala",7.5027000,80.3467000,078 342 5964,rear_dock,normal,"",05:30,08:00
+OUT070,Style,Kurunegala,Peliyagoda,Kurunegala 5 - Waypoint Style,"No. 225, Puttalam Road, Kurunegala",7.5109000,80.3701000,078 342 6037,rear_dock,normal,"",09:00,17:00
+OUT071,Style,Kurunegala,Peliyagoda,Kurunegala 1 - Waypoint Style,"No. 242, Colombo Road, Kurunegala",7.4617000,80.3389000,078 342 6110,street,normal,"",09:00,17:00
+OUT072,Tech,Kurunegala,Peliyagoda,Kurunegala 2 - Waypoint Tech,"No. 19, Kandy Road, Kurunegala",7.4699000,80.3623000,078 342 6183,rear_dock,normal,"",09:00,17:00
+OUT073,Fresh,Puttalam,Peliyagoda,Puttalam 3 - Waypoint Fresh,"No. 36, Kurunegala Road, Puttalam",8.0280000,79.8517000,078 342 6256,rear_dock,normal,"",03:00,08:00
+OUT074,Fresh,Puttalam,Peliyagoda,Puttalam 4 - Waypoint Fresh,"No. 53, Chilaw Road, Puttalam",8.0362000,79.8205000,078 342 6329,rear_dock,normal,"",05:30,08:00
+OUT075,Fresh,Puttalam,Peliyagoda,Puttalam 5 - Waypoint Fresh,"No. 70, Mannar Road, Puttalam",8.0444000,79.8439000,078 342 6402,rear_dock,normal,"",03:00,08:00
+OUT076,Fresh,Kandy,Kandy,Kandy 1 - Waypoint Fresh,"No. 87, Peradeniya Road, Kandy",7.3070000,80.6181000,078 342 6475,street,van_only,"",03:00,08:00
+OUT077,Fresh,Kandy,Kandy,Kandy 2 - Waypoint Fresh,"No. 104, Dalada Veediya, Kandy",7.3152000,80.6415000,078 342 6548,street,van_only,"",05:00,07:30
+OUT078,Fresh,Kandy,Kandy,Kandy 3 - Waypoint Fresh,"No. 121, William Gopallawa Mawatha, Kandy",7.2660000,80.6103000,078 342 6621,street,van_only,"",03:00,08:00
+OUT079,Fresh,Kandy,Kandy,Kandy 4 - Waypoint Fresh,"No. 138, Katugastota Road, Kandy",7.2742000,80.6337000,078 342 6694,street,van_only,"",04:00,07:45
+OUT080,Fresh,Kandy,Kandy,Kandy 5 - Waypoint Fresh,"No. 155, D.S. Senanayake Veediya, Kandy",7.2824000,80.6571000,078 342 6767,street,van_only,"",05:30,08:00
+OUT081,Fresh,Kandy,Kandy,Kandy 1 - Waypoint Fresh,"No. 172, Peradeniya Road, Kandy",7.2906000,80.6259000,078 342 6840,street,van_only,"",03:00,08:00
+OUT082,Fresh,Kandy,Kandy,Kandy 2 - Waypoint Fresh,"No. 189, Dalada Veediya, Kandy",7.2988000,80.6493000,078 342 6913,street,van_only,"",03:00,08:00
+OUT083,Fresh,Kandy,Kandy,Kandy 3 - Waypoint Fresh,"No. 206, William Gopallawa Mawatha, Kandy",7.3070000,80.6181000,078 342 6986,street,van_only,"",04:00,07:45
+OUT084,Fresh,Kandy,Kandy,Kandy 4 - Waypoint Fresh,"No. 223, Katugastota Road, Kandy",7.3152000,80.6415000,078 342 7059,rear_dock,normal,"",05:30,08:00
+OUT085,Fresh,Kandy,Kandy,Kandy 5 - Waypoint Fresh,"No. 240, D.S. Senanayake Veediya, Kandy",7.2660000,80.6103000,078 342 7132,rear_dock,normal,"",05:00,07:30
+OUT086,Fresh,Kandy,Kandy,Kandy 1 - Waypoint Fresh,"No. 17, Peradeniya Road, Kandy",7.2742000,80.6337000,078 342 7205,rear_dock,normal,"",03:00,08:00
+OUT087,Fresh,Kandy,Kandy,Kandy 2 - Waypoint Fresh,"No. 34, Dalada Veediya, Kandy",7.2824000,80.6571000,078 342 7278,rear_dock,normal,"",03:00,08:00
+OUT088,Style,Kandy,Kandy,Kandy 3 - Waypoint Style,"No. 51, William Gopallawa Mawatha, Kandy",7.2906000,80.6259000,078 342 7351,street,van_only,"",09:00,17:00
+OUT089,Style,Kandy,Kandy,Kandy 4 - Waypoint Style,"No. 68, Katugastota Road, Kandy",7.2988000,80.6493000,078 342 7424,mall_bay,mall_dock,10:30-12:30,10:30,12:30
+OUT090,Style,Kandy,Kandy,Kandy 5 - Waypoint Style,"No. 85, D.S. Senanayake Veediya, Kandy",7.3070000,80.6181000,078 342 7497,mall_bay,mall_dock,10:30-12:30,10:30,12:30
+OUT091,Style,Kandy,Kandy,Kandy 1 - Waypoint Style,"No. 102, Peradeniya Road, Kandy",7.3152000,80.6415000,078 342 7570,street,normal,"",09:00,17:00
+OUT092,Style,Kandy,Kandy,Kandy 2 - Waypoint Style,"No. 119, Dalada Veediya, Kandy",7.2660000,80.6103000,078 342 7643,street,normal,"",09:00,17:00
+OUT093,Tech,Kandy,Kandy,Kandy 3 - Waypoint Tech,"No. 136, William Gopallawa Mawatha, Kandy",7.2742000,80.6337000,078 342 7716,street,van_only,"",09:00,17:00
+OUT094,Tech,Kandy,Kandy,Kandy 4 - Waypoint Tech,"No. 153, Katugastota Road, Kandy",7.2824000,80.6571000,078 342 7789,mall_bay,mall_dock,09:00-11:00,09:00,11:00
+OUT095,Tech,Kandy,Kandy,Kandy 5 - Waypoint Tech,"No. 170, D.S. Senanayake Veediya, Kandy",7.2906000,80.6259000,078 342 7862,rear_dock,normal,"",09:00,17:00
+OUT096,Fresh,Matale,Kandy,Matale 1 - Waypoint Fresh,"No. 187, Nagolla Road, Matale",7.4757000,80.6390000,078 342 7935,rear_dock,normal,"",05:30,08:00
+OUT097,Fresh,Matale,Kandy,Matale 2 - Waypoint Fresh,"No. 204, Trincomalee Street, Matale",7.4839000,80.6078000,078 342 8008,street,normal,"",03:00,08:00
+OUT098,Fresh,Matale,Kandy,Matale 3 - Waypoint Fresh,"No. 221, Kandy Road, Matale",7.4921000,80.6312000,078 342 8081,rear_dock,normal,"",03:00,08:00
+OUT099,Fresh,Matale,Kandy,Matale 4 - Waypoint Fresh,"No. 238, Main Street, Matale",7.4429000,80.6000000,078 342 8154,rear_dock,normal,"",05:00,07:30
+OUT100,Fresh,Matale,Kandy,Matale 5 - Waypoint Fresh,"No. 15, Nagolla Road, Matale",7.4511000,80.6234000,078 342 8227,rear_dock,normal,"",03:00,08:00
+OUT101,Fresh,Matale,Kandy,Matale 1 - Waypoint Fresh,"No. 32, Trincomalee Street, Matale",7.4593000,80.6468000,078 342 8300,rear_dock,normal,"",05:00,07:30
+OUT102,Style,Matale,Kandy,Matale 2 - Waypoint Style,"No. 49, Kandy Road, Matale",7.4675000,80.6156000,078 342 8373,street,normal,"",09:00,17:00
+OUT103,Tech,Matale,Kandy,Matale 3 - Waypoint Tech,"No. 66, Main Street, Matale",7.4757000,80.6390000,078 342 8446,rear_dock,normal,"",09:00,17:00
+OUT104,Fresh,Nuwara Eliya,Kandy,Nuwara Eliya 4 - Waypoint Fresh,"No. 83, Haddon Hill Road, Nuwara Eliya",6.9661000,80.7735000,078 342 8519,rear_dock,normal,"",03:00,08:00
+OUT105,Fresh,Nuwara Eliya,Kandy,Nuwara Eliya 5 - Waypoint Fresh,"No. 100, Badulla Road, Nuwara Eliya",6.9743000,80.7969000,078 342 8592,rear_dock,normal,"",05:00,07:30
+OUT106,Fresh,Nuwara Eliya,Kandy,Nuwara Eliya 1 - Waypoint Fresh,"No. 117, Kandy Road, Nuwara Eliya",6.9251000,80.7657000,078 342 8665,rear_dock,normal,"",05:30,08:00
+OUT107,Fresh,Nuwara Eliya,Kandy,Nuwara Eliya 2 - Waypoint Fresh,"No. 134, Queen Elizabeth Drive, Nuwara Eliya",6.9333000,80.7891000,078 342 8738,rear_dock,normal,"",03:00,08:00
+OUT108,Fresh,Nuwara Eliya,Kandy,Nuwara Eliya 3 - Waypoint Fresh,"No. 151, Haddon Hill Road, Nuwara Eliya",6.9415000,80.8125000,078 342 8811,rear_dock,normal,"",04:00,07:45
+OUT109,Style,Nuwara Eliya,Kandy,Nuwara Eliya 4 - Waypoint Style,"No. 168, Badulla Road, Nuwara Eliya",6.9497000,80.7813000,078 342 8884,rear_dock,normal,"",09:00,17:00
+OUT110,Fresh,Badulla,Kandy,Badulla 5 - Waypoint Fresh,"No. 185, Bandarawela Road, Badulla",7.0016000,81.0706000,078 342 8957,rear_dock,normal,"",03:00,08:00
+OUT111,Fresh,Badulla,Kandy,Badulla 1 - Waypoint Fresh,"No. 202, Keppetipola Road, Badulla",7.0098000,81.0394000,078 342 9030,rear_dock,normal,"",03:00,08:00
+OUT112,Fresh,Badulla,Kandy,Badulla 2 - Waypoint Fresh,"No. 219, Gothami Road, Badulla",7.0180000,81.0628000,078 342 9103,rear_dock,normal,"",04:00,07:45
+OUT113,Fresh,Badulla,Kandy,Badulla 3 - Waypoint Fresh,"No. 236, Lower King Street, Badulla",6.9688000,81.0316000,078 342 9176,rear_dock,normal,"",05:30,08:00
+OUT114,Style,Badulla,Kandy,Badulla 4 - Waypoint Style,"No. 13, Bandarawela Road, Badulla",6.9770000,81.0550000,078 342 9249,rear_dock,normal,"",09:00,17:00
+OUT115,Tech,Badulla,Kandy,Badulla 5 - Waypoint Tech,"No. 30, Keppetipola Road, Badulla",6.9852000,81.0784000,078 342 9322,street,normal,"",09:00,17:00
+OUT116,Fresh,Kegalle,Kandy,Kegalle 1 - Waypoint Fresh,"No. 47, Karandupona Junction, Kegalle",7.2513000,80.3386000,078 342 9395,rear_dock,normal,"",05:00,07:30
+OUT117,Fresh,Kegalle,Kandy,Kegalle 2 - Waypoint Fresh,"No. 64, Bandaranayake Mawatha, Kegalle",7.2595000,80.3620000,078 342 9468,rear_dock,normal,"",04:00,07:45
+OUT118,Fresh,Kegalle,Kandy,Kegalle 3 - Waypoint Fresh,"No. 81, Colombo - Kandy Main Road, Kegalle",7.2677000,80.3308000,078 342 9541,street,normal,"",04:00,07:45
+OUT119,Fresh,Kegalle,Kandy,Kegalle 4 - Waypoint Fresh,"No. 98, Karandupona Junction, Kegalle",7.2759000,80.3542000,078 342 9614,rear_dock,normal,"",03:00,08:00
+OUT120,Style,Kegalle,Kandy,Kegalle 5 - Waypoint Style,"No. 115, Bandaranayake Mawatha, Kegalle",7.2267000,80.3230000,078 342 9687,rear_dock,normal,"",09:00,17:00
